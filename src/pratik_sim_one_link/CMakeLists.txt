@@ -28,7 +28,7 @@ find_package(catkin REQUIRED COMPONENTS
   )
 
 generate_dynamic_reconfigure_options(
-  cfg/multirotor_simulator.cfg
+  cfg/sim_one_link.cfg
   )
 
 set(LIBRARIES
@@ -39,15 +39,15 @@ set(LIBRARIES
 
 catkin_package(
   LIBRARIES ${LIBRARIES}
-  INCLUDE_DIRS include include/mrs_multirotor_simulator include/mrs_multirotor_simulator/uav_system include/mrs_multirotor_simulator/uav_system/controllers
+  INCLUDE_DIRS include include/pratik_sim_one_link include/pratik_sim_one_link/uav_system include/pratik_sim_one_link/uav_system/controllers
   CATKIN_DEPENDS ${CATKIN_DEPENDENCIES}
   )
 
 include_directories(
   include
-  include/mrs_multirotor_simulator
-  include/mrs_multirotor_simulator/uav_system
-  include/mrs_multirotor_simulator/uav_system/controllers
+  include/pratik_sim_one_link
+  include/pratik_sim_one_link/uav_system
+  include/pratik_sim_one_link/uav_system/controllers
   ${catkin_INCLUDE_DIRS}
   ${dynamic_reconfigure_PACKAGE_PATH}/cmake/cfgbuild.cmake
   )
@@ -72,7 +72,7 @@ target_link_libraries(PratikSimOneLink_SimulatorSystemRos
 # - ROS node with the MRS Multirotor Simulator
 
 add_library(PratikSimOneLink_Simulator
-  src/multirotor_simulator.cpp
+  src/sim_one_link.cpp
   )
 
 add_dependencies(PratikSimOneLink_Simulator
@@ -122,7 +122,7 @@ install(DIRECTORY tmux/
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/tmux
   )
 
-install(DIRECTORY include/mrs_multirotor_simulator/
+install(DIRECTORY include/pratik_sim_one_link/
   DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
   )
 

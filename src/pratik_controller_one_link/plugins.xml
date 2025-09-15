@@ -1,0 +1,7 @@
+<library path="lib/libControllerOneLink">
+  <class  name="pratik_controller_one_link/ControllerOneLink" 
+          type="pratik_controller_one_link::controller_one_link::ControllerOneLink" 
+          base_class_type="mrs_uav_managers::Controller">
+    <description>This is the Controller for One Drone.</description>
+  </class>
+</library>
