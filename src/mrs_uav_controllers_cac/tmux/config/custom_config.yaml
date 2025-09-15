@@ -1,0 +1,95 @@
+mrs_uav_managers:
+
+  estimation_manager:
+
+    # loaded state estimator plugins
+    state_estimators: [
+      "gps_baro",
+      "rtk",
+      # "ground_truth",
+    ]
+
+    initial_state_estimator: "rtk" # will be used as the first state estimator
+    agl_height_estimator: "" # only slightly filtered height for checking min height (not used in control feedback)
+
+  control_manager:
+
+    ExampleController:
+      address: "example_controller_plugin/ExampleController"
+      namespace: "example_controller"
+      eland_threshold: 20.0 # [m], position error triggering eland
+      failsafe_threshold: 30.0 # [m], position error triggering failsafe land
+      odometry_innovation_threshold: 1.5 # [m], position odometry innovation threshold
+      human_switchable: true
+      tilt: 60
+
+      # which outputs the controller can provide
+      outputs:
+        actuators:             false
+        control_group:         false
+        attitude_rate:         false
+        attitude:              true
+        acceleration_hdg_rate: false
+        acceleration_hdg:      false
+        velocity_hdg_rate:     false
+        velocity_hdg:          false
+        position:              false
+
+    Se3Controller_CAC:
+      address: "mrs_uav_controllers_cac/Se3Controller_CAC"
+      namespace: "se3_controller_CAC"
+      eland_threshold: 20 # [m], position error triggering eland
+      failsafe_threshold: 30 # [m], position error triggering failsafe land
+      odometry_innovation_threshold: 1.5 # [m], position odometry innovation threshold
+      human_switchable: true
+
+      # which outputs the controller can provide
+      outputs:
+        actuators:             false
+        control_group:         false
+        attitude_rate:         true
+        attitude:              false
+        acceleration_hdg_rate: false
+        acceleration_hdg:      false
+        velocity_hdg_rate:     false
+        velocity_hdg:          false
+        position:              false
+
+    # list of names of dynamically loaded controllers
+    controllers : [
+      "ExampleController",
+      "Se3Controller_CAC",
+    ]
+
+    safety:
+
+      tilt_error_disarm:
+        enabled: false
+
+  uav_manager:
+
+    takeoff:
+      during_takeoff:
+        controller: "MpcController"
+        tracker: "LandoffTracker"
+      after_takeoff:
+        controller: "MpcController"
+
+    midair_activation:
+      during_activation:
+        controller: "MidairActivationController"
+        tracker: "MidairActivationTracker"
+
+      after_activation:
+        controller: "MpcController"
+
+    min_height_checking:
+      enabled: false
+
+    max_height_checking:
+      enabled: false
+
+  constraint_manager:
+
+    default_constraints:
+      gps_baro: "fast"

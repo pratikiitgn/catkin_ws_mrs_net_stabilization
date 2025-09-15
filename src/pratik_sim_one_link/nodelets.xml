@@ -1,0 +1,7 @@
+<library path="lib/libPratikSimOneLink_Simulator">
+  <class name="pratik_sim_one_link/MultirotorSimulator" 
+  type="pratik_sim_one_link::MultirotorSimulator" 
+  base_class_type="nodelet::Nodelet">
+    <description>MultirotorSimulator nodelet</description>
+  </class>
+</library>

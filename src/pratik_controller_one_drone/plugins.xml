@@ -1,0 +1,7 @@
+<library path="lib/libControllerOneDrone">
+  <class  name="pratik_controller_one_drone/ControllerOneDrone" 
+          type="pratik_controller_one_drone::controller_one_drone::ControllerOneDrone" 
+          base_class_type="mrs_uav_managers::Controller">
+    <description>This is the Controller for One Drone.</description>
+  </class>
+</library>

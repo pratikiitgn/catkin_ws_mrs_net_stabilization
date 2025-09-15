@@ -1,0 +1,7 @@
+<library path="lib/libPratikSimOneDrone_Simulator">
+  <class name="pratik_sim_one_drone/PratikSimOneDrone" 
+          type="pratik_sim_one_drone::PratikSimOneDrone" 
+          base_class_type="nodelet::Nodelet">
+    <description>PratikSimOneDrone nodelet</description>
+  </class>
+</library>

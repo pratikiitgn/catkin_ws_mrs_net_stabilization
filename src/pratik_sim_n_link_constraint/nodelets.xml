@@ -1,0 +1,7 @@
+<library path="lib/libPratikSimNLinkConstraint_Simulator">
+  <class name="pratik_sim_n_link_constraint/MultirotorSimulator" 
+  type="pratik_sim_n_link_constraint::MultirotorSimulator" 
+  base_class_type="nodelet::Nodelet">
+    <description>MultirotorSimulator nodelet</description>
+  </class>
+</library>

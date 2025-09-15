@@ -1,0 +1,72 @@
+mrs_uav_managers:
+
+  estimation_manager:
+
+    # loaded state estimator plugins
+    state_estimators: [
+      "gps_garmin",
+    ]
+
+    initial_state_estimator: "gps_garmin" # will be used as the first state estimator
+    agl_height_estimator: "garmin_agl" # only slightly filtered height for checking min height (not used in control feedback)
+
+  control_manager:
+
+    ControllerOneDrone:
+      address: "pratik_controller_one_drone/ControllerOneDrone"
+      namespace: "controller_one_drone"
+      eland_threshold: 20.0 # [m], position error triggering eland
+      failsafe_threshold: 30.0 # [m], position error triggering failsafe land
+      odometry_innovation_threshold: 1.5 # [m], position odometry innovation threshold
+      human_switchable: true
+      tilt: 60
+
+      # which outputs the controller can provide
+      outputs:
+        actuators:             false
+        control_group:         false
+        attitude_rate:         false
+        attitude:              true
+        acceleration_hdg_rate: false
+        acceleration_hdg:      false
+        velocity_hdg_rate:     false
+        velocity_hdg:          false
+        position:              false
+
+    # list of names of dynamically loaded controllers
+    controllers : [
+      "ControllerOneDrone",
+    ]
+
+    safety:
+
+      tilt_error_disarm:
+        enabled: false
+
+  uav_manager:
+
+    takeoff:
+      during_takeoff:
+        controller: "MpcController"
+        tracker: "LandoffTracker"
+      after_takeoff:
+        controller: "MpcController"
+
+    midair_activation:
+      during_activation:
+        controller: "MidairActivationController"
+        tracker: "MidairActivationTracker"
+
+      after_activation:
+        controller: "MpcController"
+
+    min_height_checking:
+      enabled: false
+
+    max_height_checking:
+      enabled: false
+
+  constraint_manager:
+
+    default_constraints:
+      gps_baro: "fast"

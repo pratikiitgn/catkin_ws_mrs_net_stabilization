@@ -1,0 +1,24 @@
+Se3Controller -> Se3Controller_CAC
+namespace se3_controller -> namespace se3_controller_CAC
+
+se3_controller.cpp -> se3_controller_CAC.cpp
+
+
+------ In   CMakeLists.txt
+add_library(MrsUavControllers_Se3Controller
+  # src/se3_controller.cpp
+  src/se3_controller_CAC.cpp
+  src/common.cpp
+  )
+
+  mrs_uav_managers:
+
+  control_manager:
+
+    Se3Controller_CAC:
+      eland_threshold: 1.5 # [m], position error triggering eland
+      failsafe_threshold: 2.5 # [m], position error triggering failsafe land
+      odometry_innovation_threshold: 1.5 # [m], position odometry innovation threshold
+
+
+mrs_uav_controllers -> mrs_uav_controllers_cac

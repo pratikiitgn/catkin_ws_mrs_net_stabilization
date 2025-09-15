@@ -1,0 +1,60 @@
+desired_roll:         0.0 # [rad]
+desired_pitch:        0.0 # [rad]
+desired_yaw:          0.0 # [rad]
+desired_thrust_force: 0.0 # [N], additional to gravity compensation
+
+#################### How to chose the gains
+# Kp = mass x omega ^ 2
+# Kd = 2 x mass x zeta x omega
+# omega = 1.8 / tr
+# tr is rise time
+
+#################### Case 1
+# Consider tr = 1 second ---> omega = 1.8
+# zeta = 0.7
+# Kp = mass x omega ^ 2 = 2 x 1.8 x 1.8             = 6.48
+# Kd = 2 x mass x zeta x omega = 2 x 2 x 0.7 x 1.8  = 5.04
+
+#################### Case 2
+# Consider tr = 0.5 second ---> omega = 3.6
+# zeta = 1
+# Kp = mass x omega ^ 2 = 2 x 3.6 x 3.6             = 25.92
+# Kd = 2 x mass x zeta x omega = 2 x 2 x 1 x 3.6    = 14.4
+
+kx_1_value:     1.7     # 0.7  # 2.0 # 5.5  # 10.0
+kx_2_value:     1.7     # 0.7  # 2.0 # 5.5  # 10.0
+kx_3_value:     10.0    # 10.0 # 10.0 # 10.0 # 10.0
+
+kx_1_dot_value: 8.0     # 5.5 # 2.8 # 5.0  # 8.0
+kx_2_dot_value: 8.0     # 5.5 # 2.8 # 5.0  # 8.0
+kx_3_dot_value: 10.0    # 10.0  # 8.0 # 8.0  # 8.0
+
+# 1.5 and 5.0  - not good
+
+############################################################
+#################### For single drone only
+# kx_1_value:     15.0     # 0.7  # 2.0 # 5.5  # 10.0
+# kx_2_value:     15.0     # 0.7  # 2.0 # 5.5  # 10.0
+# kx_3_value:     10.0    # 10.0 # 10.0 # 10.0 # 10.0
+
+# kx_1_dot_value: 2.0     # 5.5 # 2.8 # 5.0  # 8.0
+# kx_2_dot_value: 2.0     # 5.5 # 2.8 # 5.0  # 8.0
+# kx_3_dot_value: 15.0    # 10.0  # 8.0 # 8.0  # 8.0
+#################### For single drone only
+############################################################
+
+kq_1_value:     5.0
+kq_2_value:     5.0
+kq_3_value:     5.0
+
+kq_1_dot_value: 4.5
+kq_2_dot_value: 4.5
+kq_3_dot_value: 4.5
+
+# rates of timers in Hz
+rate:
+  publish_quad_state:           250   # [Hz]
+  publish_desired_quad_state:   250   # [Hz]
+  publish_cable_state:          250   # [Hz]
+  publish_desired_cable_state:  250   # [Hz]
+

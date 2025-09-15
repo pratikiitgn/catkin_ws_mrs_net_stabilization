@@ -1,0 +1,7 @@
+<library path="lib/libmrs_uav_controllers_cac">
+  <class name="mrs_uav_controllers_cac/Se3Controller_CAC" 
+          type="mrs_uav_controllers_cac::se3_controller_CAC::Se3Controller_CAC" 
+          base_class_type="mrs_uav_managers::Controller">
+    <description>This is the Se3Controller_CAC.</description>
+  </class>
+</library>
