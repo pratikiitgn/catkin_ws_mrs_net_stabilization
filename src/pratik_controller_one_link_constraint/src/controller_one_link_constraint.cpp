@@ -8,7 +8,7 @@
 #include <mrs_uav_managers/controller.h>
 #include <dynamic_reconfigure/server.h>
 
-#include <pratik_controller_one_drone/controller_one_droneConfig.h>
+#include <pratik_controller_one_link_constraint/controller_one_link_constraintConfig.h>
 
 #include <mrs_lib/param_loader.h>
 #include <mrs_lib/subscribe_handler.h>
@@ -41,26 +41,6 @@ Eigen::Vector3d e3(0.0,0.0,1.0);
 float g_acceleration    = 9.81;     // in m/s^2
 float PI_value          = 3.1415926535;
 
-// | ----------------- Desired quadcopter State ----------------- |
-
-float des_quad_x      = 0.0;
-float des_quad_y      = 0.0;
-float des_quad_z      = 0.0;
-
-float des_quad_x_dot  = 0.0;
-float des_quad_y_dot  = 0.0;
-float des_quad_z_dot  = 0.0;
-
-float des_quad_x_dot_dot  = 0.0;
-float des_quad_y_dot_dot  = 0.0;
-float des_quad_z_dot_dot  = 0.0;
-
-Eigen::Vector3d b_1_des(1.0,0.0,0.0);
-Eigen::Vector3d b_2_des(0.0,1.0,0.0);
-Eigen::Vector3d b_3_des(0.0,0.0,1.0);
-
-float commanded_yaw_angle = 0.0;
-
 Eigen::Vector3d b_1_c(1.0,0.0,0.0);
 
 Eigen::Vector3d des_rpy;
@@ -71,25 +51,27 @@ Eigen::Vector2d Iw_w_   = Eigen::Vector2d(0, 0);
 Eigen::Vector2d Ib_w    = Eigen::Vector2d(0, 0);
 Eigen::Vector2d Ib_b_   = Eigen::Vector2d(0, 0);
 
-// | ----------------- Custom Gains ----------------- |
-
-float kx_1        = 0.0;
-float kx_2        = 0.0;
-float kx_3        = 0.0;
-
-float kx_1_dot    = 0.0;
-float kx_2_dot    = 0.0;
-float kx_3_dot    = 0.0;
-
-Eigen::Array3d kx(0.0,0.0,0.0);
-Eigen::Array3d kx_dot(0.0,0.0,0.0);
-
 // | ------------ controller limits and saturations ----------- |
 
 bool   _tilt_angle_failsafe_enabled_;
 double _tilt_angle_failsafe_;
 
 double _throttle_saturation_;
+
+// | ----------------- Link attitude State ----------------- |
+
+double alpha      = 0.0;
+double alpha_dot  = 0.0;
+
+// | ----------------- Desired link attitude State ----------------- |
+
+double alpha_des      = 0.0;
+double alpha_dot_des  = 0.0;
+
+// | ----------------- Error in link attitude State ----------------- |
+
+double e_alpha      = 0.0;
+double e_alpha_dot  = 0.0;
 
 // | ------------------------ profiler_ ------------------------ |
 
@@ -98,10 +80,10 @@ bool              _profiler_enabled_ = false;
 
 //}
 
-namespace pratik_controller_one_drone
+namespace pratik_controller_one_link_constraint
 {
 
-namespace controller_one_drone
+namespace controller_one_link_constraint
 {
 
 typedef struct
@@ -114,14 +96,19 @@ typedef struct
   double kdz;           // Velocity gain in z
   double km;            // mass estimator gain
   double km_lim;        // mass estimator limit
-  double kq_roll_pitch;  // pitch/roll attitude gain
-  double kq_yaw;         // yaw attitude gain
-
+  double kq_roll_pitch; // pitch/roll attitude gain
+  double kq_yaw;        // yaw attitude gain
+  double kq_1;          // link attitude gains
+  double kq_2;          // link attitude gains
+  double kq_3;          // link attitude gains
+  double kq_dot_1;      // link attitude gains
+  double kq_dot_2;      // link attitude gains
+  double kq_dot_3;      // link attitude gains
 } Gains_t;
 
-/* //{ class ControllerOneDrone */
+/* //{ class ControllerOneLinkConstraint */
 
-class ControllerOneDrone : public mrs_uav_managers::Controller {
+class ControllerOneLinkConstraint : public mrs_uav_managers::Controller {
 
 public:
   bool initialize(const ros::NodeHandle& nh, std::shared_ptr<mrs_uav_managers::control_manager::CommonHandlers_t> common_handlers,
@@ -183,10 +170,10 @@ private:
   // | --------------- dynamic reconfigure server --------------- |
 
   boost::recursive_mutex                                      mutex_drs_;
-  typedef pratik_controller_one_drone::controller_one_droneConfig DrsConfig_t;
+  typedef pratik_controller_one_link_constraint::controller_one_link_constraintConfig DrsConfig_t;
   typedef dynamic_reconfigure::Server<DrsConfig_t>            Drs_t;
   boost::shared_ptr<Drs_t>                                    drs_;
-  void                                                        callbackDrs(pratik_controller_one_drone::controller_one_droneConfig& config, uint32_t level);
+  void                                                        callbackDrs(pratik_controller_one_link_constraint::controller_one_link_constraintConfig& config, uint32_t level);
   DrsConfig_t                                                 drs_params_;
   std::mutex                                                  mutex_drs_params_;
 
@@ -246,6 +233,10 @@ private:
 
   // | --------------------- timer callbacks -------------------- |
 
+  // | ---------------------- msg callbacks --------------------- |
+  mrs_lib::SubscribeHandler<nav_msgs::Odometry>                  sh_link_states;
+  void              callback_link_states(const nav_msgs::Odometry::ConstPtr msg);
+
 };
 
 //}
@@ -258,7 +249,7 @@ private:
 
 /* //{ initialize() */
 
-bool ControllerOneDrone::initialize(const ros::NodeHandle& nh, std::shared_ptr<mrs_uav_managers::control_manager::CommonHandlers_t> common_handlers,
+bool ControllerOneLinkConstraint::initialize(const ros::NodeHandle& nh, std::shared_ptr<mrs_uav_managers::control_manager::CommonHandlers_t> common_handlers,
                                    std::shared_ptr<mrs_uav_managers::control_manager::PrivateHandlers_t> private_handlers) {
 
   nh_ = nh;
@@ -284,15 +275,15 @@ bool ControllerOneDrone::initialize(const ros::NodeHandle& nh, std::shared_ptr<m
   // Alternatives:
   //   You can load the file directly into the ParamLoader as shown below.
 
-  success *= private_handlers->loadConfigFile(ros::package::getPath("pratik_controller_one_drone") + "/config/controller_one_drone.yaml");
+  success *= private_handlers->loadConfigFile(ros::package::getPath("pratik_controller_one_link_constraint") + "/config/controller_one_link_constraint.yaml");
 
   if (!success) {
     return false;
   }
 
-  mrs_lib::ParamLoader param_loader(nh_, "ControllerOneDrone");
+  mrs_lib::ParamLoader param_loader(nh_, "ControllerOneLinkConstraint");
 
-  const std::string yaml_namespace = "pratik_controller_one_drone/default_gains/";
+  const std::string yaml_namespace = "pratik_controller_one_link_constraint/default_gains/";
 
   private_handlers->param_loader->loadParam(yaml_namespace + "kpx", gains_.kpx);
   private_handlers->param_loader->loadParam(yaml_namespace + "kpy", gains_.kpy);
@@ -301,6 +292,13 @@ bool ControllerOneDrone::initialize(const ros::NodeHandle& nh, std::shared_ptr<m
   private_handlers->param_loader->loadParam(yaml_namespace + "kdy", gains_.kdy);
   private_handlers->param_loader->loadParam(yaml_namespace + "kdz", gains_.kdz);
 
+  private_handlers->param_loader->loadParam(yaml_namespace + "kq_1", gains_.kq_1);
+  private_handlers->param_loader->loadParam(yaml_namespace + "kq_2", gains_.kq_2);
+  private_handlers->param_loader->loadParam(yaml_namespace + "kq_3", gains_.kq_3);
+  private_handlers->param_loader->loadParam(yaml_namespace + "kq_dot_1", gains_.kq_dot_1);
+  private_handlers->param_loader->loadParam(yaml_namespace + "kq_dot_2", gains_.kq_dot_2);
+  private_handlers->param_loader->loadParam(yaml_namespace + "kq_dot_3", gains_.kq_dot_3);
+
   private_handlers->param_loader->loadParam(yaml_namespace + "mass_estimator/km", gains_.km);
   private_handlers->param_loader->loadParam(yaml_namespace + "mass_estimator/km_lim", gains_.km_lim);
   // attitude gains
@@ -308,7 +306,7 @@ bool ControllerOneDrone::initialize(const ros::NodeHandle& nh, std::shared_ptr<m
   private_handlers->param_loader->loadParam(yaml_namespace + "attitude/kq_yaw", gains_.kq_yaw);
 
   // gain filtering
-  const std::string yaml_namespace_gain = "pratik_controller_one_drone/gain_filtering/";
+  const std::string yaml_namespace_gain = "pratik_controller_one_link_constraint/gain_filtering/";
 
   private_handlers->param_loader->loadParam(yaml_namespace_gain + "perc_change_rate", _gains_filter_change_rate_);
   private_handlers->param_loader->loadParam(yaml_namespace_gain + "min_change_rate", _gains_filter_min_change_rate_);
@@ -316,19 +314,19 @@ bool ControllerOneDrone::initialize(const ros::NodeHandle& nh, std::shared_ptr<m
   private_handlers->param_loader->loadParam(yaml_namespace_gain + "gain_mute_coefficient", _gain_mute_coefficient_);
 
   // angular rate feed forward
-  const std::string yaml_namespace_ang_rate_ff = "pratik_controller_one_drone/angular_rate_feedforward/";
+  const std::string yaml_namespace_ang_rate_ff = "pratik_controller_one_link_constraint/angular_rate_feedforward/";
   private_handlers->param_loader->loadParam(yaml_namespace_ang_rate_ff + "parasitic_pitch_roll",
                                             drs_params_.pitch_roll_heading_rate_compensation);
   private_handlers->param_loader->loadParam(yaml_namespace_ang_rate_ff + "jerk", drs_params_.jerk_feedforward);
   
   // constraints
-  private_handlers->param_loader->loadParam("pratik_controller_one_drone/constraints/tilt_angle_failsafe/enabled", _tilt_angle_failsafe_enabled_);
-  private_handlers->param_loader->loadParam("pratik_controller_one_drone/constraints/tilt_angle_failsafe/limit", _tilt_angle_failsafe_);
+  private_handlers->param_loader->loadParam("pratik_controller_one_link_constraint/constraints/tilt_angle_failsafe/enabled", _tilt_angle_failsafe_enabled_);
+  private_handlers->param_loader->loadParam("pratik_controller_one_link_constraint/constraints/tilt_angle_failsafe/limit", _tilt_angle_failsafe_);
 
   _tilt_angle_failsafe_ = M_PI * (_tilt_angle_failsafe_ / 180.0);
 
   if (_tilt_angle_failsafe_enabled_ && std::abs(_tilt_angle_failsafe_) < 1e-3) {
-    ROS_ERROR("[ControllerOneDrone]: constraints/tilt_angle_failsafe/enabled = 'TRUE' but the limit is too low");
+    ROS_ERROR("[ControllerOneLinkConstraint]: constraints/tilt_angle_failsafe/enabled = 'TRUE' but the limit is too low");
     return false;
   }
 
@@ -337,7 +335,7 @@ bool ControllerOneDrone::initialize(const ros::NodeHandle& nh, std::shared_ptr<m
   // | ------------------ finish loading params ----------------- |
 
   if (!param_loader.loadedSuccessfully()) {
-    ROS_ERROR("[ControllerOneDrone]: could not load all parameters!");
+    ROS_ERROR("[ControllerOneLinkConstraint]: could not load all parameters!");
     return false;
   }
 
@@ -348,6 +346,14 @@ bool ControllerOneDrone::initialize(const ros::NodeHandle& nh, std::shared_ptr<m
   drs_params_.kdx         = gains_.kdx;
   drs_params_.kdy         = gains_.kdy;
   drs_params_.kdz         = gains_.kdz;
+
+  drs_params_.kq_1         = gains_.kq_1;
+  drs_params_.kq_2         = gains_.kq_2;
+  drs_params_.kq_3         = gains_.kq_3;
+  drs_params_.kq_dot_1     = gains_.kq_dot_1;
+  drs_params_.kq_dot_2     = gains_.kq_dot_2;
+  drs_params_.kq_dot_3     = gains_.kq_dot_3;
+
   drs_params_.km          = gains_.km;
   drs_params_.km_lim      = gains_.km_lim;
   drs_params_.kq_roll_pitch    = gains_.kq_roll_pitch;
@@ -356,30 +362,33 @@ bool ControllerOneDrone::initialize(const ros::NodeHandle& nh, std::shared_ptr<m
 
   drs_.reset(new Drs_t(mutex_drs_, nh_));
   drs_->updateConfig(drs_params_);
-  Drs_t::CallbackType f = boost::bind(&ControllerOneDrone::callbackDrs, this, _1, _2);
+  Drs_t::CallbackType f = boost::bind(&ControllerOneLinkConstraint::callbackDrs, this, _1, _2);
   drs_->setCallback(f);
 
   // | ------------------------- timers ------------------------- |
 
-  timer_gains_ = nh_.createTimer(ros::Rate(_gain_filtering_rate_), &ControllerOneDrone::timerGains, this, false, false);
+  timer_gains_ = nh_.createTimer(ros::Rate(_gain_filtering_rate_), &ControllerOneLinkConstraint::timerGains, this, false, false);
 
   // | ------------------ initialize subscribers ----------------- |
 
   mrs_lib::SubscribeHandlerOptions shopts;
   shopts.nh                 = nh;
-  shopts.node_name          = "ControllerOneDrone";
+  shopts.node_name          = "ControllerOneLinkConstraint";
   shopts.no_message_timeout = ros::Duration(1.0);
   shopts.threadsafe         = true;
   shopts.autostart          = true;
   shopts.queue_size         = 10;
   shopts.transport_hints    = ros::TransportHints().tcpNoDelay();
 
+  sh_link_states           = mrs_lib::SubscribeHandler<nav_msgs::Odometry>(shopts, "/sim_one_link_constraint/uav1/link_state",
+                                                                                            &ControllerOneLinkConstraint::callback_link_states, this);
+
   // initialize the integrals
   uav_mass_difference_ = 0;
 
   // | ----------------------- finish init ---------------------- |
 
-  ROS_INFO("[ControllerOneDrone]: initialized");
+  ROS_INFO("[ControllerOneLinkConstraint]: initialized");
 
   is_initialized_ = true;
 
@@ -390,7 +399,7 @@ bool ControllerOneDrone::initialize(const ros::NodeHandle& nh, std::shared_ptr<m
 
 /* //{ activate() */
 
-bool ControllerOneDrone::activate(const ControlOutput& last_control_output) {
+bool ControllerOneLinkConstraint::activate(const ControlOutput& last_control_output) {
 
   activation_control_output_ = last_control_output;
 
@@ -399,7 +408,7 @@ bool ControllerOneDrone::activate(const ControlOutput& last_control_output) {
   if (activation_control_output_.diagnostics.mass_estimator) {
     uav_mass_difference_ = activation_control_output_.diagnostics.mass_difference;
     activation_mass += uav_mass_difference_;
-    ROS_INFO("[ControllerOneDrone]: setting mass difference from the last control output: %.2f kg", uav_mass_difference_);
+    ROS_INFO("[ControllerOneLinkConstraint]: setting mass difference from the last control output: %.2f kg", uav_mass_difference_);
   }
 
   last_control_output_.diagnostics.controller_enforcing_constraints = false;
@@ -411,7 +420,7 @@ bool ControllerOneDrone::activate(const ControlOutput& last_control_output) {
 
   is_active_ = true;
 
-  ROS_INFO("[ControllerOneDrone]: activated");
+  ROS_INFO("[ControllerOneLinkConstraint]: activated");
 
   return true;
 }
@@ -420,21 +429,21 @@ bool ControllerOneDrone::activate(const ControlOutput& last_control_output) {
 
 /* //{ deactivate() */
 
-void ControllerOneDrone::deactivate(void) {
+void ControllerOneLinkConstraint::deactivate(void) {
 
   is_active_            = false;
   first_iteration_      = false;
   uav_mass_difference_  = 0;
   timer_gains_.stop();
 
-  ROS_INFO("[ControllerOneDrone]: deactivated");
+  ROS_INFO("[ControllerOneLinkConstraint]: deactivated");
 }
 
 //}
 
 /* updateInactive() //{ */
 
-void ControllerOneDrone::updateInactive(const mrs_msgs::UavState& uav_state, [[maybe_unused]] const std::optional<mrs_msgs::TrackerCommand>& tracker_command) {
+void ControllerOneLinkConstraint::updateInactive(const mrs_msgs::UavState& uav_state, [[maybe_unused]] const std::optional<mrs_msgs::TrackerCommand>& tracker_command) {
 
   mrs_lib::set_mutexed(mutex_uav_state_, uav_state, uav_state_);
 
@@ -447,7 +456,7 @@ void ControllerOneDrone::updateInactive(const mrs_msgs::UavState& uav_state, [[m
 
 /* //{ updateActive() */
 
-ControllerOneDrone::ControlOutput ControllerOneDrone::updateActive(const mrs_msgs::UavState& uav_state, const mrs_msgs::TrackerCommand& tracker_command) {
+ControllerOneLinkConstraint::ControlOutput ControllerOneLinkConstraint::updateActive(const mrs_msgs::UavState& uav_state, const mrs_msgs::TrackerCommand& tracker_command) {
 
   auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
   auto gains       = mrs_lib::get_mutexed(mutex_gains_, gains_);
@@ -479,7 +488,7 @@ ControllerOneDrone::ControlOutput ControllerOneDrone::updateActive(const mrs_msg
 
   if (fabs(dt) < 0.001) {
 
-    ROS_DEBUG("[ControllerOneDrone]: the last odometry message came too close (%.2f s)!", dt);
+    ROS_DEBUG("[ControllerOneLinkConstraint]: the last odometry message came too close (%.2f s)!", dt);
     dt = 0.01;
     // dt               = 0.004;
   }
@@ -488,7 +497,7 @@ ControllerOneDrone::ControlOutput ControllerOneDrone::updateActive(const mrs_msg
 
   // you can decide what to return, but it needs to be available
   if (common_handlers_->control_output_modalities.attitude) {
-    ROS_INFO_THROTTLE(1.0, "[ControllerOneDrone]: desired attitude output modality is available");
+    ROS_INFO_THROTTLE(1.0, "[ControllerOneLinkConstraint]: desired attitude output modality is available");
   }
 
   // | ---------- extract the detailed model parameters --------- |
@@ -497,7 +506,7 @@ ControllerOneDrone::ControlOutput ControllerOneDrone::updateActive(const mrs_msg
 
     mrs_uav_managers::control_manager::DetailedModelParams_t detailed_model_params = common_handlers_->detailed_model_params.value();
 
-    // ROS_INFO_STREAM_THROTTLE(1.0, "[ControllerOneDrone]: UAV inertia is: " << detailed_model_params.inertia);
+    // ROS_INFO_STREAM_THROTTLE(1.0, "[ControllerOneLinkConstraint]: UAV inertia is: " << detailed_model_params.inertia);
   }
 
   // | -------------- prepare the control reference ------------- |
@@ -551,10 +560,6 @@ ControllerOneDrone::ControlOutput ControllerOneDrone::updateActive(const mrs_msg
     Ra << 0, 0, 0;
   }
 
-  commanded_yaw_angle  = tracker_command.heading;
-
-  // Getting positional state of the drone
-
   // | ----------------- Quadcopter State ----------------- |
   // Op - position in global frame
   // Ov - velocity in global frame
@@ -586,6 +591,8 @@ ControllerOneDrone::ControlOutput ControllerOneDrone::updateActive(const mrs_msg
   Eigen::Array3d  Kp(0, 0, 0);
   Eigen::Array3d  Kv(0, 0, 0);
   Eigen::Array3d  Kq(0, 0, 0);
+  Eigen::Array3d  kq_link(0, 0, 0);
+  Eigen::Array3d  kq_dot_link(0, 0, 0);
 
   Kp(0) = gains.kpx;
   Kp(1) = gains.kpy;
@@ -594,46 +601,17 @@ ControllerOneDrone::ControlOutput ControllerOneDrone::updateActive(const mrs_msg
   Kv(1) = gains.kdy;
   Kv(2) = gains.kdz;
 
-  {
-    std::scoped_lock lock(mutex_gains_);
+  kq_link(0) = gains.kq_1;
+  kq_link(1) = gains.kq_2;
+  kq_link(2) = gains.kq_3;
 
-    if (tracker_command.use_position_horizontal) {
-      Kp(0) = gains.kpx;
-      Kp(1) = gains.kpy;
-    } else {
-      Kp(0) = 0;
-      Kp(1) = 0;
-    }
-
-    if (tracker_command.use_position_vertical) {
-      Kp(2) = gains.kpz;
-    } else {
-      Kp(2) = 0;
-    }
-
-    if (tracker_command.use_velocity_horizontal) {
-      Kv(0) = gains.kdx;
-      Kv(1) = gains.kdy;
-    } else {
-      Kv(0) = 0;
-      Kv(1) = 0;
-    }
-
-    // special case: if want to control z-pos but not the velocity => at least provide z dampening, therefore kdz_
-    if (tracker_command.use_velocity_vertical || tracker_command.use_position_vertical) {
-      Kv(2) = gains.kdz;
-    } else {
-      Kv(2) = 0;
-    }
-
-    if (!tracker_command.use_attitude_rate) {
-    Kq << gains.kq_roll_pitch, gains.kq_roll_pitch, gains.kq_yaw;
-    }
-
-  }
+  kq_dot_link(0) = gains.kq_dot_1;
+  kq_dot_link(1) = gains.kq_dot_2;
+  kq_dot_link(2) = gains.kq_dot_3;
 
   // Kp = Kp * (_uav_mass_ + uav_mass_difference_);
   // Kv = Kv * (_uav_mass_ + uav_mass_difference_);
+  // | --------------------- Quadcopter position controller --------------------- |
 
   double total_mass                 = _uav_mass_ + uav_mass_difference_;
   Eigen::Vector3d feed_forward      = total_mass * (Eigen::Vector3d(0, 0, common_handlers_->g));
@@ -676,11 +654,20 @@ ControllerOneDrone::ControlOutput ControllerOneDrone::updateActive(const mrs_msg
   // ROS_INFO("x err: %2.2f, y err: %2.2f, z err: %2.2f", Ep(0), Ep(1), Ep(2));
   ROS_INFO_THROTTLE(0.5, "Mass Estimator: %2.2f", total_mass);
 
+  // | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  // | ---------------- prepare for link Attitude Controller --------------- |
+  Eigen::Array3d kq(0.0,0.0,0.0);
+  Eigen::Array3d kq_dot(0.0,0.0,0.0);
+
+  Eigen::Vector3d u_link_input   (0.0,0.0,0.0);
+
+  // | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+
   // | ---------------- prepare the final control output --------------- |
-  Eigen::Vector3d u_control_input   = u_quad_input;
+  Eigen::Vector3d u_control_input   = u_quad_input + u_link_input;
 
   if (u_control_input(2) < 0) {
-    ROS_WARN_THROTTLE(1.0, "[ControllerOneDrone]: the calculated downwards desired force is negative (%.2f) -> mitigating flip", u_control_input(2));
+    ROS_WARN_THROTTLE(1.0, "[ControllerOneLinkConstraint]: the calculated downwards desired force is negative (%.2f) -> mitigating flip", u_control_input(2));
     u_control_input << 0, 0, 1;
   }
 
@@ -698,7 +685,7 @@ ControllerOneDrone::ControlOutput ControllerOneDrone::updateActive(const mrs_msg
         Rd = mrs_lib::AttitudeConverter(Rd).setHeading(tracker_command.heading);
       }
       catch (...) {
-        ROS_ERROR_THROTTLE(1.0, "[ControllerOneDrone]: could not set the desired heading");
+        ROS_ERROR_THROTTLE(1.0, "[ControllerOneLinkConstraint]: could not set the desired heading");
       }
     }
 
@@ -709,7 +696,7 @@ ControllerOneDrone::ControlOutput ControllerOneDrone::updateActive(const mrs_msg
     if (tracker_command.use_heading) {
       bxd << cos(tracker_command.heading), sin(tracker_command.heading), 0;
     } else {
-      ROS_WARN_THROTTLE(10.0, "[ControllerOneDrone]: desired heading was not specified, using current heading instead!");
+      ROS_WARN_THROTTLE(10.0, "[ControllerOneLinkConstraint]: desired heading was not specified, using current heading instead!");
       bxd << cos(uav_heading), sin(uav_heading), 0;
     }
 
@@ -731,7 +718,7 @@ ControllerOneDrone::ControlOutput ControllerOneDrone::updateActive(const mrs_msg
     if (desired_thrust_force >= 0) {
       throttle = mrs_lib::quadratic_throttle_model::forceToThrottle(common_handlers_->throttle_model, desired_thrust_force);
     } else {
-      ROS_WARN_THROTTLE(1.0, "[ControllerOneDrone]: just so you know, the desired throttle force is negative (%.2f)", desired_thrust_force);
+      ROS_WARN_THROTTLE(1.0, "[ControllerOneLinkConstraint]: just so you know, the desired throttle force is negative (%.2f)", desired_thrust_force);
     }
   }
 
@@ -784,7 +771,7 @@ ControllerOneDrone::ControlOutput ControllerOneDrone::updateActive(const mrs_msg
 
   last_control_output_.diagnostics.controller_enforcing_constraints = false;
 
-  last_control_output_.diagnostics.controller       = "ControllerOneDrone";
+  last_control_output_.diagnostics.controller       = "ControllerOneLinkConstraint";
 
   // | ------------ construct the attitude reference ------------ |
 
@@ -806,7 +793,7 @@ ControllerOneDrone::ControlOutput ControllerOneDrone::updateActive(const mrs_msg
 
 /* orientationError() //{ */
 
-Eigen::Vector3d ControllerOneDrone::orientationError(const Eigen::Matrix3d& R, const Eigen::Matrix3d& Rd) {
+Eigen::Vector3d ControllerOneLinkConstraint::orientationError(const Eigen::Matrix3d& R, const Eigen::Matrix3d& Rd) {
 
   // orientation error
   Eigen::Matrix3d R_error = 0.5 * (Rd.transpose() * R - R.transpose() * Rd);
@@ -824,7 +811,7 @@ Eigen::Vector3d ControllerOneDrone::orientationError(const Eigen::Matrix3d& R, c
 
 /* //{ getStatus() */
 
-const mrs_msgs::ControllerStatus ControllerOneDrone::getStatus() {
+const mrs_msgs::ControllerStatus ControllerOneLinkConstraint::getStatus() {
 
   mrs_msgs::ControllerStatus controller_status;
 
@@ -837,21 +824,21 @@ const mrs_msgs::ControllerStatus ControllerOneDrone::getStatus() {
 
 /* switchOdometrySource() //{ */
 
-void ControllerOneDrone::switchOdometrySource([[maybe_unused]] const mrs_msgs::UavState& new_uav_state) {
+void ControllerOneLinkConstraint::switchOdometrySource([[maybe_unused]] const mrs_msgs::UavState& new_uav_state) {
 }
 
 //}
 
 /* resetDisturbanceEstimators() //{ */
 
-void ControllerOneDrone::resetDisturbanceEstimators(void) {
+void ControllerOneLinkConstraint::resetDisturbanceEstimators(void) {
 }
 
 //}
 
 /* setConstraints() //{ */
 
-const mrs_msgs::DynamicsConstraintsSrvResponse::ConstPtr ControllerOneDrone::setConstraints([
+const mrs_msgs::DynamicsConstraintsSrvResponse::ConstPtr ControllerOneLinkConstraint::setConstraints([
     [maybe_unused]] const mrs_msgs::DynamicsConstraintsSrvRequest::ConstPtr& constraints) {
 
   if (!is_initialized_) {
@@ -860,7 +847,7 @@ const mrs_msgs::DynamicsConstraintsSrvResponse::ConstPtr ControllerOneDrone::set
 
   mrs_lib::set_mutexed(mutex_constraints_, constraints->constraints, constraints_);
 
-  ROS_INFO("[ControllerOneDrone]: updating constraints");
+  ROS_INFO("[ControllerOneLinkConstraint]: updating constraints");
 
   mrs_msgs::DynamicsConstraintsSrvResponse res;
   res.success = true;
@@ -875,11 +862,11 @@ const mrs_msgs::DynamicsConstraintsSrvResponse::ConstPtr ControllerOneDrone::set
 // |                          callbacks                         |
 // --------------------------------------------------------------
 
-void ControllerOneDrone::callbackDrs(pratik_controller_one_drone::controller_one_droneConfig& config, [[maybe_unused]] uint32_t level) {
+void ControllerOneLinkConstraint::callbackDrs(pratik_controller_one_link_constraint::controller_one_link_constraintConfig& config, [[maybe_unused]] uint32_t level) {
 
   mrs_lib::set_mutexed(mutex_drs_params_, config, drs_params_);
 
-  ROS_INFO("[ControllerOneDrone]: dynamic reconfigure params updated");
+  ROS_INFO("[ControllerOneLinkConstraint]: dynamic reconfigure params updated");
 }
 
 // --------------------------------------------------------------
@@ -888,10 +875,10 @@ void ControllerOneDrone::callbackDrs(pratik_controller_one_drone::controller_one
 
 /* timerGains() //{ */
 
-void ControllerOneDrone::timerGains(const ros::TimerEvent& event) {
+void ControllerOneLinkConstraint::timerGains(const ros::TimerEvent& event) {
 
   mrs_lib::Routine    profiler_routine = profiler_.createRoutine("timerGains", _gain_filtering_rate_, 1.0, event);
-  mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer("ControllerOneDrone::timerGains", common_handlers_->scope_timer.logger, common_handlers_->scope_timer.enabled);
+  mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer("ControllerOneLinkConstraint::timerGains", common_handlers_->scope_timer.logger, common_handlers_->scope_timer.enabled);
 
   auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
   auto gains      = mrs_lib::get_mutexed(mutex_gains_, gains_);
@@ -917,6 +904,14 @@ void ControllerOneDrone::timerGains(const ros::TimerEvent& event) {
   gains.kdx      = calculateGainChange(dt, gains.kdx, drs_params.kdx * gain_coeff, bypass_filter, "kdx", updated);
   gains.kdy      = calculateGainChange(dt, gains.kdy, drs_params.kdy * gain_coeff, bypass_filter, "kdy", updated);
   gains.kdz      = calculateGainChange(dt, gains.kdz, drs_params.kdz * gain_coeff, bypass_filter, "kdz", updated);
+
+  gains.kq_1     = calculateGainChange(dt, gains.kq_1, drs_params.kq_1 * gain_coeff, bypass_filter, "kq_1", updated);
+  gains.kq_2     = calculateGainChange(dt, gains.kq_2, drs_params.kq_2 * gain_coeff, bypass_filter, "kq_2", updated);
+  gains.kq_3     = calculateGainChange(dt, gains.kq_3, drs_params.kq_3 * gain_coeff, bypass_filter, "kq_3", updated);
+  gains.kq_dot_1 = calculateGainChange(dt, gains.kq_dot_1, drs_params.kq_dot_1 * gain_coeff, bypass_filter, "kq_dot_1", updated);
+  gains.kq_dot_2 = calculateGainChange(dt, gains.kq_dot_2, drs_params.kq_dot_2 * gain_coeff, bypass_filter, "kq_dot_2", updated);
+  gains.kq_dot_3 = calculateGainChange(dt, gains.kq_dot_3, drs_params.kq_dot_3 * gain_coeff, bypass_filter, "kq_dot_3", updated);
+
   gains.km       = calculateGainChange(dt, gains.km, drs_params.km * gain_coeff, bypass_filter, "km", updated);
   gains.kq_roll_pitch = calculateGainChange(dt, gains.kq_roll_pitch, drs_params.kq_roll_pitch * gain_coeff, bypass_filter, "kq_roll_pitch", updated);
   gains.kq_yaw        = calculateGainChange(dt, gains.kq_yaw, drs_params.kq_yaw * gain_coeff, bypass_filter, "kq_yaw", updated);
@@ -938,12 +933,20 @@ void ControllerOneDrone::timerGains(const ros::TimerEvent& event) {
     drs_params.kdz      = gains.kdz;
     drs_params.km       = gains.km;
     drs_params.km_lim   = gains.km_lim;
+
+    drs_params.kq_1     = gains.kq_1;
+    drs_params.kq_2     = gains.kq_2;
+    drs_params.kq_3     = gains.kq_3;
+    drs_params.kq_dot_1 = gains.kq_dot_1;
+    drs_params.kq_dot_2 = gains.kq_dot_2;
+    drs_params.kq_dot_3 = gains.kq_dot_3;
+
     drs_params.kq_roll_pitch = gains.kq_roll_pitch;
     drs_params.kq_yaw        = gains.kq_yaw;
 
     drs_->updateConfig(drs_params);
 
-    ROS_INFO_THROTTLE(10.0, "[ControllerOneDrone]: gains have been updated");
+    ROS_INFO_THROTTLE(10.0, "[ControllerOneLinkConstraint]: gains have been updated");
   }
 }
 
@@ -951,7 +954,7 @@ void ControllerOneDrone::timerGains(const ros::TimerEvent& event) {
 
 /* attitudeController() //{ */
 
-std::optional<mrs_msgs::HwApiAttitudeRateCmd> ControllerOneDrone::attitudeController(const mrs_msgs::UavState& uav_state, const mrs_msgs::HwApiAttitudeCmd& reference,
+std::optional<mrs_msgs::HwApiAttitudeRateCmd> ControllerOneLinkConstraint::attitudeController(const mrs_msgs::UavState& uav_state, const mrs_msgs::HwApiAttitudeCmd& reference,
                                                                  const Eigen::Vector3d& ff_rate, const Eigen::Vector3d& rate_saturation,
                                                                  const Eigen::Vector3d& gains, const bool& parasitic_heading_rate_compensation) {
 
@@ -1029,7 +1032,13 @@ std::optional<mrs_msgs::HwApiAttitudeRateCmd> ControllerOneDrone::attitudeContro
   return cmd;
 }
 
-float ControllerOneDrone::clipping_angle(float max_value, float current_angle){
+void ControllerOneLinkConstraint::callback_link_states(const nav_msgs::Odometry::ConstPtr msg) {
+
+  alpha     = msg->pose.pose.position.x;
+  alpha_dot = msg->twist.twist.linear.x;
+}
+
+float ControllerOneLinkConstraint::clipping_angle(float max_value, float current_angle){
   if (current_angle > max_value) // 0.35 rad means 20 deg
   {
     current_angle = max_value;
@@ -1042,7 +1051,7 @@ float ControllerOneDrone::clipping_angle(float max_value, float current_angle){
   return current_angle;
 }
 
-float ControllerOneDrone::clipping_net_thrust_force(float max_value, float current_thrust){
+float ControllerOneLinkConstraint::clipping_net_thrust_force(float max_value, float current_thrust){
   if (current_thrust > max_value) // 24.959870582 * 4
   {
     current_thrust = max_value;
@@ -1055,7 +1064,7 @@ float ControllerOneDrone::clipping_net_thrust_force(float max_value, float curre
   return current_thrust;
 }
 
-Eigen::Vector3d ControllerOneDrone::clipping_e_x_q(Eigen::Vector3d e_x_q_vector){
+Eigen::Vector3d ControllerOneLinkConstraint::clipping_e_x_q(Eigen::Vector3d e_x_q_vector){
   float max_error_lim = 5.0; // in meter
   for (int i=0;i<=2;i++){
     if (e_x_q_vector(i) > max_error_lim ){
@@ -1068,7 +1077,7 @@ Eigen::Vector3d ControllerOneDrone::clipping_e_x_q(Eigen::Vector3d e_x_q_vector)
 return e_x_q_vector;
 }
 
-Eigen::Vector3d ControllerOneDrone::clipping_e_x_q_dot(Eigen::Vector3d e_x_q_dot_vector){
+Eigen::Vector3d ControllerOneLinkConstraint::clipping_e_x_q_dot(Eigen::Vector3d e_x_q_dot_vector){
   float max_error_lim = 5.0; // in meter per second
   for (int i=0;i<=2;i++){
     if (e_x_q_dot_vector(i) > max_error_lim ){
@@ -1081,7 +1090,7 @@ Eigen::Vector3d ControllerOneDrone::clipping_e_x_q_dot(Eigen::Vector3d e_x_q_dot
 return e_x_q_dot_vector;
 }
 
-float ControllerOneDrone::distance_bt_two_pts(Eigen::Vector3d A, Eigen::Vector3d B){
+float ControllerOneLinkConstraint::distance_bt_two_pts(Eigen::Vector3d A, Eigen::Vector3d B){
 
   float norm__  = (A[0] - B[0]) * (A[0] - B[0]) + (A[1] - B[1]) * (A[1] - B[1]) + (A[2] - B[2]) * (A[2] - B[2]);
   norm__ = sqrtf(norm__ );
@@ -1089,12 +1098,12 @@ float ControllerOneDrone::distance_bt_two_pts(Eigen::Vector3d A, Eigen::Vector3d
 
 }
 
-Eigen::Vector3d ControllerOneDrone::Matrix_vector_mul(Eigen::Matrix3d R, Eigen::Vector3d v){
+Eigen::Vector3d ControllerOneLinkConstraint::Matrix_vector_mul(Eigen::Matrix3d R, Eigen::Vector3d v){
   Eigen::Vector3d mul_vector (R(0,0)*v[0] + R(0,1)*v[1] + R(0,2)*v[2], R(1,0)*v[0] + R(1,1)*v[1] + R(1,2)*v[2],  R(2,0)*v[0] + R(2,1)*v[1] + R(2,2)*v[2]);
   return mul_vector;
 }
 
-Eigen::Vector3d ControllerOneDrone::Rotation_matrix_to_Euler_angle(Eigen::Matrix3d R){
+Eigen::Vector3d ControllerOneLinkConstraint::Rotation_matrix_to_Euler_angle(Eigen::Matrix3d R){
 
   float sy      = sqrtf( R(0,0) * R(0,0) +  R(1,0) * R(1,0) );
   float ph_des  = atan2f(R(2,1) , R(2,2));
@@ -1105,7 +1114,7 @@ Eigen::Vector3d ControllerOneDrone::Rotation_matrix_to_Euler_angle(Eigen::Matrix
   return des_roll_pitch_yaw;
 }
 
-Eigen::Matrix3d ControllerOneDrone::so3transform(const Eigen::Vector3d& body_z, const ::Eigen::Vector3d& heading, const bool& preserve_heading) {
+Eigen::Matrix3d ControllerOneLinkConstraint::so3transform(const Eigen::Vector3d& body_z, const ::Eigen::Vector3d& heading, const bool& preserve_heading) {
 
   Eigen::Vector3d body_z_normed = body_z.normalized();
 
@@ -1162,7 +1171,7 @@ Eigen::Matrix3d ControllerOneDrone::so3transform(const Eigen::Vector3d& body_z, 
 
 /* calculateGainChange() //{ */
 
-double ControllerOneDrone::calculateGainChange(const double dt, const double current_value, const double desired_value, const bool bypass_rate, std::string name,
+double ControllerOneLinkConstraint::calculateGainChange(const double dt, const double current_value, const double desired_value, const bool bypass_rate, std::string name,
                                           bool& updated) {
 
   double change = desired_value - current_value;
@@ -1199,7 +1208,7 @@ double ControllerOneDrone::calculateGainChange(const double dt, const double cur
   }
 
   if (std::abs(change) > 1e-3) {
-    ROS_DEBUG("[ControllerOneDrone]: changing gain '%s' from %.2f to %.2f", name.c_str(), current_value, desired_value);
+    ROS_DEBUG("[ControllerOneLinkConstraint]: changing gain '%s' from %.2f to %.2f", name.c_str(), current_value, desired_value);
     updated = true;
   }
 
@@ -1208,7 +1217,7 @@ double ControllerOneDrone::calculateGainChange(const double dt, const double cur
 
 //}
 
-double ControllerOneDrone::getHeadingSafely(const mrs_msgs::UavState& uav_state, const mrs_msgs::TrackerCommand& tracker_command) {
+double ControllerOneLinkConstraint::getHeadingSafely(const mrs_msgs::UavState& uav_state, const mrs_msgs::TrackerCommand& tracker_command) {
 
   try {
     return mrs_lib::AttitudeConverter(uav_state.pose.orientation).getHeading();
@@ -1229,7 +1238,7 @@ double ControllerOneDrone::getHeadingSafely(const mrs_msgs::UavState& uav_state,
   return 0;
 }
 
-// void ControllerOneDrone::Publisher_QuadState(const mrs_msgs::UavState& uav_state){
+// void ControllerOneLinkConstraint::Publisher_QuadState(const mrs_msgs::UavState& uav_state){
 
 //   if (!is_initialized_) {
 //     return;
@@ -1253,7 +1262,7 @@ double ControllerOneDrone::getHeadingSafely(const mrs_msgs::UavState& uav_state,
 
 /* timerPublishQuadState() //{ */
 
-// void ControllerOneDrone::timerPublishQuadState([[maybe_unused]] const ros::TimerEvent& te, const mrs_msgs::UavState& uav_state) {
+// void ControllerOneLinkConstraint::timerPublishQuadState([[maybe_unused]] const ros::TimerEvent& te, const mrs_msgs::UavState& uav_state) {
 
 //   if (!is_initialized_) {
 //     return;
@@ -1273,9 +1282,9 @@ double ControllerOneDrone::getHeadingSafely(const mrs_msgs::UavState& uav_state,
 
 //}
 
-}  // namespace controller_one_drone
+}  // namespace controller_one_link_constraint
 
-}  // namespace pratik_controller_one_drone
+}  // namespace pratik_controller_one_link_constraint
 
 #include <pluginlib/class_list_macros.h>
-PLUGINLIB_EXPORT_CLASS(pratik_controller_one_drone::controller_one_drone::ControllerOneDrone, mrs_uav_managers::Controller)
+PLUGINLIB_EXPORT_CLASS(pratik_controller_one_link_constraint::controller_one_link_constraint::ControllerOneLinkConstraint, mrs_uav_managers::Controller)

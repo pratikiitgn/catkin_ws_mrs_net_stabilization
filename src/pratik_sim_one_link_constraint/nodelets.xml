@@ -1,0 +1,7 @@
+<library path="lib/libPratikSimOneLinkConstraint_Simulator">
+  <class name="pratik_sim_one_link_constraint/PratikSimOneLinkConstraint" 
+  type="pratik_sim_one_link_constraint::PratikSimOneLinkConstraint" 
+  base_class_type="nodelet::Nodelet">
+    <description>PratikSimOneLinkConstraint nodelet</description>
+  </class>
+</library>
