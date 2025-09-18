@@ -23,6 +23,9 @@
 #include "ode/boost/numeric/odeint.hpp"
 #include "controllers/references.hpp"
 
+// small regularization to stabilize near-singular Inertia_matrix matrices
+static constexpr double REG_EPS = 1e-9;
+
 namespace odeint = boost::numeric::odeint;
 
 namespace pratik_sim_one_link_constraint
@@ -148,6 +151,14 @@ public:
   void operator()(const MultirotorModel::InternalState& x, MultirotorModel::InternalState& dxdt, const double t);
 
   Eigen::Vector3d getImuAcceleration() const;
+
+  Eigen::VectorXd compute_Xdd(double mq, double mp, double l, double g, double f,
+                     const Eigen::Vector3d &rho, const Eigen::Matrix3d &Jq, const Eigen::Vector3d &M,
+                     const Eigen::VectorXd &XK, const Eigen::Vector3d &e3);
+
+  static inline Eigen::Vector3d qb_vec(double alpha);
+  static inline Eigen::Matrix3d hatmap(const Eigen::Vector3d &v);
+  static inline Eigen::Vector3d qt_vec(double alpha);
 
   ModelParams getParams(void);
   void        setParams(const ModelParams& params);
@@ -390,26 +401,60 @@ void MultirotorModel::operator()(const MultirotorModel::InternalState& x, Multir
   // First Rigid Link Only
   Eigen::Vector3d u_vector = thrust * R.col(2);
 
-  // First Rigid Link Only
-  // v_dot = -Eigen::Vector3d(0, 0, params_.g) + thrust * R.col(2) / params_.mass + external_force_ / params_.mass - resistance * vnorm / params_.mass;
+  //////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////
 
-  // Gravity terms
-  v_dot = - Eigen::Vector3d(0, 0, params_.g);
-  // Control Input term
-  v_dot = v_dot + (u_vector / (params_.mass + params_.mp));
-  // External Disturbances
+  Eigen::Vector3d rho_vector(0.0,0.0,0.1);
+  Eigen::Vector3d e3(0.0,0.0,1.0);
+
+  Eigen::VectorXd XK(20,1);
+  
+  for (int i = 0; i < 3; i++) {
+    XK(0 + i)   = x.at(0 + i);
+    XK(3 + i)   = x.at(3 + i);
+    XK(6 + i)   = x.at(6 + i);
+    XK(9 + i)   = x.at(9 + i);
+    XK(12 + i)  = x.at(12 + i);
+    XK(15 + i)  = x.at(15 + i);
+  }
+
+  // First Rigid Link Only
+    XK(18)      = x.at(18);
+    XK(19)      = x.at(19);
+
+  // Calling the custom dynamics of the system
+  Eigen::Matrix<double, 7, 1> X_dot_dot_custom;
+  
+
+  // double thrust_pratik = (params_.mass + params_.mp)*params_.g;
+  // Eigen::Vector3d M_pratik (0.0,0.0,0.0);
+
+  // ROS_INFO_THROTTLE("Thrust force: [%2.2f]",thrust_pratik);
+  // ROS_INFO_THROTTLE("Control Momemet: [%2.2f,%2.2f,%2.2f]",M_pratik(0),M_pratik(1),M_pratik(2));
+  // ROS_INFO_THROTTLE("Initial State: [%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f]",XK(0),XK(1),XK(2),XK(3),XK(4),XK(5),XK(6),XK(7),XK(8),XK(9),XK(10),XK(11),XK(12),XK(13),XK(14),XK(15),XK(16),XK(17),XK(18),XK(19));
+
+  X_dot_dot_custom = compute_Xdd(params_.mass, params_.mp, params_.l, params_.g, thrust,
+                     rho_vector, params_.J, torque_thrust.topRows(3), XK, e3);
+
+  ROS_INFO_THROTTLE(0.5,"Xq dot dot   : [%2.2f,%2.2f,%2.2f]",X_dot_dot_custom(0),X_dot_dot_custom(1),X_dot_dot_custom(2));
+  ROS_INFO_THROTTLE(0.5,"Omega dot dot: [%2.2f,%2.2f,%2.2f]",X_dot_dot_custom(3),X_dot_dot_custom(4),X_dot_dot_custom(5));
+  ROS_INFO_THROTTLE(0.5,"Alpha dot dot: [%2.2f]",X_dot_dot_custom(6));
+
+  for (int jj = 0; jj < 3; jj++) {
+    // v_dot = -Eigen::Vector3d(0, 0, params_.g) + thrust * R.col(2) / params_.mass + external_force_ / params_.mass - resistance * vnorm / params_.mass;
+    v_dot(jj)       = X_dot_dot_custom(0 + jj);
+    // omega_dot = params_.J.inverse() * (torque_thrust.topRows(3) - cur_state.omega.cross(params_.J * cur_state.omega) + external_moment_);
+    omega_dot(jj)   = X_dot_dot_custom(3 + jj);
+  }
+
   v_dot = v_dot + external_force_ / params_.mass - resistance * vnorm / params_.mass;
-  // Nonlinear term from link
-  v_dot = v_dot;
-  // final
-  v_dot = v_dot;
 
   R_dot = R * omega_tensor;
 
-  omega_dot = params_.J.inverse() * (torque_thrust.topRows(3) - cur_state.omega.cross(params_.J * cur_state.omega) + external_moment_);
-
-  // ROS_INFO("u_vector state -> [%2.3f, %2.3f, %2.3f]",u_vector(0), u_vector(1), u_vector(2));
-  alpha_dot_dot    = 0.0;
+  // ROS_INFO_THROTTLE("u_vector state -> [%2.3f, %2.3f, %2.3f]",u_vector(0), u_vector(1), u_vector(2));
+  alpha_dot_dot    = X_dot_dot_custom(6);
 
   for (int i = 0; i < 3; i++) {
     dxdt.at(0 + i)  = x_dot(i);
@@ -556,6 +601,180 @@ Eigen::Vector3d MultirotorModel::getImuAcceleration() const {
 }
 
 //}
+
+
+// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+// hat map (skew-symmetric) for a 3-vector
+Eigen::Matrix3d MultirotorModel::hatmap(const Eigen::Vector3d &v) {
+  Eigen::Matrix3d H;
+  H <<     0.0, -v.z(),  v.y(),
+        v.z(),    0.0, -v.x(),
+       -v.y(),  v.x(),    0.0;
+  return H;
+}
+
+// qb_vec and qt_vec as used in MATLAB version
+Eigen::Vector3d MultirotorModel::qb_vec(double alpha) {
+  return Eigen::Vector3d(std::sin(alpha), 0.0, -std::cos(alpha));
+}
+
+Eigen::Vector3d MultirotorModel::qt_vec(double alpha) {
+  return Eigen::Vector3d(std::cos(alpha), 0.0, std::sin(alpha));
+}
+
+// compute X_ddot (7x1): [ xq_ddot(3); Omega_dot(3); alpha_ddot(1) ]
+// Inputs:
+//   mq, mp, l, g, f  - scalars
+//   rho (3x1), Jq (3x3), M (3x1), XK (20x1), e3 (3x1)
+// XK layout matches the mapping you gave:
+//
+// XK indices (1-based in matlab) -> 0-based in C++:
+//  0..2:   xq
+//  3..5:   xq_dot
+//  6..14:  R entries (mapping below)
+// 15..17:  Omega
+// 18:      alpha
+// 19:      alpha_dot
+Eigen::VectorXd MultirotorModel::compute_Xdd(double mq, double mp, double l, double g, double f,
+                     const Eigen::Vector3d &rho, const Eigen::Matrix3d &Jq, const Eigen::Vector3d &M,
+                     const Eigen::VectorXd &XK, const Eigen::Vector3d &e3)
+{
+  // input sanity
+  if (XK.size() != 20) {
+    throw std::runtime_error("XK must be length 20");
+  }
+
+  // extract states
+  Eigen::Vector3d xq (XK(0),XK(1),XK(2));
+  Eigen::Vector3d xq_dot (XK(3),XK(4),XK(5));
+
+  // reconstruct R from given components as in MATLAB code (watch order)
+  // MATLAB used this mapping:
+  // R = [ XK(7)   XK(10)  XK(13);
+  //       XK(8)   XK(11)  XK(14);
+  //       XK(9)   XK(12)  XK(15) ];
+  // In 0-based indexing this corresponds to XK(6), XK(9), XK(12), etc.
+  Eigen::Matrix3d R;
+  R << XK(6),  XK(9),  XK(12),
+       XK(7), XK(10),  XK(13),
+       XK(8), XK(11),  XK(14);
+
+  // R << XK(6),  XK(7),  XK(8),
+  //      XK(9), XK(10),  XK(11),
+  //      XK(12), XK(13),  XK(14);
+
+  // Re-orthonormalize R (polar decomposition)
+  Eigen::LLT<Eigen::Matrix3d> llt(R.transpose() * R);
+  Eigen::Matrix3d             P = llt.matrixL();
+  R = R * P.inverse();
+
+  ROS_INFO_THROTTLE(0.5,"Rotation matrix: [%2.2f, %2.2f, %2.2f; %2.2f, %2.2f, %2.2f; %2.2f, %2.2f, %2.2f]",
+         R(0,0), R(0,1), R(0,2),
+         R(1,0), R(1,1), R(1,2),
+         R(2,0), R(2,1), R(2,2));
+
+  Eigen::Vector3d Omega (XK(15),XK(16),XK(17));
+
+  double alpha        = XK(18);
+  double alpha_dot    = XK(19);
+
+  // helper matrices/vectors
+  Eigen::Matrix3d hat_rho_lqb = hatmap(rho + l * qb_vec(alpha)); // hat(rho + l*qb)
+  Eigen::Matrix3d hat_qt       = hatmap(qt_vec(alpha));
+  Eigen::Matrix3d hat_qb       = hatmap(qb_vec(alpha));
+  Eigen::Matrix3d hatOmega     = hatmap(Omega);
+
+  // Build Inertia_matrix sub-blocks (as in MATLAB)
+  Eigen::Matrix3d I11 = (mq * Eigen::Matrix3d::Identity()) + (mp * Eigen::Matrix3d::Identity());
+  Eigen::Matrix3d I12 = - mp * R * hat_rho_lqb;
+  Eigen::Vector3d I13 = mp * l * (R * qt_vec(alpha));             // 3x1
+
+  Eigen::Matrix3d I21 = mp * hat_rho_lqb * R.transpose();
+  Eigen::Matrix3d I22 = (Jq - mp * (hat_rho_lqb * hat_rho_lqb));  // Jq - mp * hat(...)^2
+  Eigen::Vector3d I23 = - mp * l * (hat_qt * (rho + l * qb_vec(alpha)));
+
+  // bottom blocks
+  Eigen::RowVector3d I31 = (mp * l * (qt_vec(alpha).transpose() * R.transpose())); // 1x3
+  Eigen::RowVector3d I32 = (mp * l * (rho + l * qb_vec(alpha)).transpose() * hat_qt); // 1x3
+  double I33 = mp * l * l;
+
+  // assemble full 7x7 Inertia_matrix matrix
+  Eigen::MatrixXd Inertia_matrix = Eigen::MatrixXd::Zero(7,7);
+  
+  Inertia_matrix.block<3,3>(0,0) = I11;
+  Inertia_matrix.block<3,3>(0,3) = I12;
+  Inertia_matrix.block<3,1>(0,6) = I13;
+
+  Inertia_matrix.block<3,3>(3,0) = I21;
+  Inertia_matrix.block<3,3>(3,3) = I22;
+  Inertia_matrix.block<3,1>(3,6) = I23;
+
+  Inertia_matrix.block<1,3>(6,0) = I31;
+  Inertia_matrix.block<1,3>(6,3) = I32;
+  Inertia_matrix(6,6) = I33;
+
+// ROS_INFO_THROTTLE(0.5,"Inertia_matrix: [%f, %f, %f; %f, %f, %f; %f, %f, %f]",
+//          Inertia_matrix(0,0), Inertia_matrix(0,1), Inertia_matrix(0,2),
+//          Inertia_matrix(1,0), Inertia_matrix(1,1), Inertia_matrix(1,2),
+//          Inertia_matrix(2,0), Inertia_matrix(2,1), Inertia_matrix(2,2));
+
+  // Build coriolis + gravity term (7x1)
+  Eigen::Vector3d C1 = mp * R * (hatOmega * hatOmega) * (rho + l * qb_vec(alpha))
+               + 2.0 * mp * l * R * hatOmega * qt_vec(alpha) * alpha_dot
+               - mp * l * R * qb_vec(alpha) * (alpha_dot * alpha_dot)
+               + (mq + mp) * g * e3;
+
+  Eigen::Vector3d C2 = hatOmega * ( Jq - mp * ( hat_rho_lqb * hat_rho_lqb ) ) * Omega
+               - mp * l * alpha_dot * hat_rho_lqb * hat_qt * Omega
+               + mp * l * (alpha_dot * alpha_dot) * hat_qb * rho
+               - mp * l * alpha_dot * hatOmega * hat_qt * ( rho + l * qb_vec(alpha) )
+               + mp * g * ( hatmap(rho) + l * hat_qb ) * R.transpose() * e3;
+
+  double C3 = mp * l * ( (Omega.transpose() * hat_rho_lqb * hat_qt * Omega)(0,0) )
+            + mp * l * ( (e3.transpose() * (R * qt_vec(alpha)))(0,0) );
+
+  Eigen::VectorXd coriolis_gravity(7);
+
+  coriolis_gravity.segment<3>(0) = C1;
+  coriolis_gravity.segment<3>(3) = C2;
+
+  coriolis_gravity(6) = C3;
+
+  // control input column [ f * R * e3; M; 0 ]
+  Eigen::VectorXd control(7);
+  Eigen::Vector3d fRe3  = f * R * e3;
+  control.segment<3>(0) = fRe3;
+  control.segment<3>(3) = M;
+  control(6) = 0.0;
+
+  // RHS
+  Eigen::VectorXd rhs = control - coriolis_gravity;
+
+  // Compute LU decomposition
+  Eigen::PartialPivLU<Eigen::MatrixXd> lu(Inertia_matrix);
+
+  // Solve for X_dot_dot
+  Eigen::VectorXd X_dot_dot = lu.solve(rhs);
+
+  // Optional: check for numerical issues
+  if ((X_dot_dot.array() != X_dot_dot.array()).any()) { // checks for NaN
+      std::cerr << "Warning: X_dot_dot contains NaN values. Matrix may be singular!" << std::endl;
+  }
+
+  return X_dot_dot;
+}
+
+
+// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
 
 
 }  // namespace pratik_sim_one_link_constraint
