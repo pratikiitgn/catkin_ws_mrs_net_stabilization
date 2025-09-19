@@ -443,10 +443,9 @@ void UavSystemRos::publish_link_state(const MultirotorModel::State &state) {
 void UavSystemRos::publish_pos_of_link_load(const MultirotorModel::State &state) {
 
   Eigen::Vector3d pos_of_load;
-  Eigen::Vector3d rho(0.0,0.0,0.1);
   Eigen::Vector3d qb(-sin(state.alpha), 0.0, -cos(state.alpha));
 
-  pos_of_load           = state.x + state.R * ( rho + model_params_.l * qb);
+  pos_of_load           = state.x + state.R * ( rho_vector + model_params_.l * qb);
 
   nav_msgs::Odometry odom;
 
@@ -464,9 +463,8 @@ void UavSystemRos::publish_pos_of_link_load(const MultirotorModel::State &state)
 void UavSystemRos::publish_pos_of_link_load_in_rviz(const MultirotorModel::State &state) {
 
   Eigen::Vector3d pos_of_load;
-  Eigen::Vector3d rho(0.0,0.0,0.1);
   Eigen::Vector3d qb(-sin(state.alpha), 0.0, -cos(state.alpha));
-  pos_of_load           = state.x + state.R * ( rho + model_params_.l * qb);
+  pos_of_load           = state.x + state.R * ( rho_vector + model_params_.l * qb);
 
   visualization_msgs::Marker marker;
 

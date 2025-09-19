@@ -18,7 +18,7 @@ pratik_controller_one_link_constraint:
     kq_2: 10.0
     kq_3: 10.0
 
-    kq_dot_1: 0.1  
+    kq_dot_1: 0.1
     kq_dot_2: 0.1
     kq_dot_3: 0.1
 

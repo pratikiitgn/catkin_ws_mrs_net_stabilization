@@ -63,15 +63,26 @@ double _throttle_saturation_;
 double alpha      = 0.0;
 double alpha_dot  = 0.0;
 
+Eigen::Vector3d     qb_link (0.0,0.0,-1.0);
+Eigen::Vector3d qb_dot_link (0.0,0.0, 0.0);
+
+Eigen::Vector3d     q_link (0.0,0.0,-1.0);
+Eigen::Vector3d q_dot_link (0.0,0.0, 0.0);
+
 // | ----------------- Desired link attitude State ----------------- |
 
 double alpha_des      = 0.0;
 double alpha_dot_des  = 0.0;
 
+Eigen::Vector3d     q_d (0.0,0.0,-1.0);
+Eigen::Vector3d q_d_dot (0.0,0.0, 0.0);
+
 // | ----------------- Error in link attitude State ----------------- |
 
 double e_alpha      = 0.0;
 double e_alpha_dot  = 0.0;
+Eigen::Vector3d     e_q       (0.0,0.0,0.0);
+Eigen::Vector3d     e_q_dot   (0.0,0.0,0.0);
 
 // | ------------------------ profiler_ ------------------------ |
 
@@ -136,6 +147,7 @@ public:
                                                                  const Eigen::Vector3d& ff_rate, const Eigen::Vector3d& rate_saturation,
                                                                  const Eigen::Vector3d& gains, const bool& parasitic_heading_rate_compensation);
   Eigen::Vector3d orientationError(const Eigen::Matrix3d& R, const Eigen::Matrix3d& Rd);
+  Eigen::Matrix3d hatmap(const Eigen::Vector3d &v);
 
   ////////////////////////////////////////////////
   //// for custom controller
@@ -567,7 +579,8 @@ ControllerOneLinkConstraint::ControlOutput ControllerOneLinkConstraint::updateAc
   Eigen::Vector3d   Op(uav_state.pose.position.x,uav_state.pose.position.y,uav_state.pose.position.z);
   Eigen::Vector3d   Ov(uav_state.velocity.linear.x,uav_state.velocity.linear.y,uav_state.velocity.linear.z);
   
-  Eigen::Matrix3d R = mrs_lib::AttitudeConverter(uav_state.pose.orientation);
+  Eigen::Matrix3d R     = mrs_lib::AttitudeConverter(uav_state.pose.orientation);
+  Eigen::Vector3d Omega (uav_state.velocity.angular.x,uav_state.velocity.angular.y,uav_state.velocity.angular.z);
 
   double uav_heading = getHeadingSafely(uav_state, tracker_command);
 
@@ -660,6 +673,22 @@ ControllerOneLinkConstraint::ControlOutput ControllerOneLinkConstraint::updateAc
   Eigen::Array3d kq_dot(0.0,0.0,0.0);
 
   Eigen::Vector3d u_link_input   (0.0,0.0,0.0);
+
+
+  qb_link(0)  = -sin(alpha);
+  qb_link(1)  = 0.0;
+  qb_link(2)  = -cos(alpha);
+
+  qb_dot_link(0)  = -cos(alpha) * alpha_dot;
+  qb_dot_link(1)  = 0.0;
+  qb_dot_link(2)  = sin(alpha) * alpha_dot;
+
+  q_link          = R * qb_link;
+  q_dot_link      = R * hatmap(Omega) * qb_link + R * qb_dot_link;
+
+  e_q               = q_link.cross(q_link.cross(q_d));
+  e_q_dot           = q_dot_link - (q_d.cross(q_d_dot)).cross(q_link);
+  u_link_input      = kq_link * e_q.array()  + kq_dot_link * e_q_dot.array();
 
   // | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 
@@ -1112,6 +1141,15 @@ Eigen::Vector3d ControllerOneLinkConstraint::Rotation_matrix_to_Euler_angle(Eige
 
   Eigen::Vector3d des_roll_pitch_yaw(ph_des, th_des, ps_des);
   return des_roll_pitch_yaw;
+}
+
+// hat map (skew-symmetric) for a 3-vector
+Eigen::Matrix3d ControllerOneLinkConstraint::hatmap(const Eigen::Vector3d &v) {
+  Eigen::Matrix3d H;
+  H <<     0.0, -v.z(),  v.y(),
+        v.z(),    0.0, -v.x(),
+       -v.y(),  v.x(),    0.0;
+  return H;
 }
 
 Eigen::Matrix3d ControllerOneLinkConstraint::so3transform(const Eigen::Vector3d& body_z, const ::Eigen::Vector3d& heading, const bool& preserve_heading) {

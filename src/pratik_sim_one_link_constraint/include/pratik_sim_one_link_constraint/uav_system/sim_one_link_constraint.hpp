@@ -25,6 +25,7 @@
 
 // small regularization to stabilize near-singular Inertia_matrix matrices
 static constexpr double REG_EPS = 1e-9;
+Eigen::Vector3d rho_vector(0.0,0.0,-0.1);
 
 namespace odeint = boost::numeric::odeint;
 
@@ -62,7 +63,7 @@ public:
       J(0, 0) = mass * (3.0 * arm_length * arm_length + body_height * body_height) / 12.0;
       J(1, 1) = mass * (3.0 * arm_length * arm_length + body_height * body_height) / 12.0;
       J(2, 2) = (mass * arm_length * arm_length) / 2.0;
-
+      
       allocation_matrix = Eigen::MatrixXd::Zero(4, 4);
 
       // clang-format off
@@ -159,6 +160,7 @@ public:
   static inline Eigen::Vector3d qb_vec(double alpha);
   static inline Eigen::Matrix3d hatmap(const Eigen::Vector3d &v);
   static inline Eigen::Vector3d qt_vec(double alpha);
+  inline double wrapToPi(double angle);
 
   ModelParams getParams(void);
   void        setParams(const ModelParams& params);
@@ -254,7 +256,7 @@ void MultirotorModel::updateInternalState(void) {
     internal_state_.at(15 + i) = state_.omega(i);
   }
   // First Rigid Link Only
-    internal_state_.at(18) = state_.alpha;
+    internal_state_.at(18) = wrapToPi(state_.alpha);
     internal_state_.at(19) = state_.alpha_dot;
 }
 
@@ -287,7 +289,7 @@ void MultirotorModel::step(const double& dt) {
   }
 
     // First Rigid Link Only
-    state_.alpha       = internal_state_.at(18);
+    state_.alpha       = wrapToPi(internal_state_.at(18));
     state_.alpha_dot   = internal_state_.at(19);
 
   double filter_const = exp((-dt) / (params_.motor_time_constant));
@@ -361,7 +363,7 @@ void MultirotorModel::operator()(const MultirotorModel::InternalState& x, Multir
   }
 
   // First Rigid Link Only
-    cur_state.alpha       = x.at(18);
+    cur_state.alpha       = wrapToPi(x.at(18));
     cur_state.alpha_dot   = x.at(19);
 
   // Re-orthonormalize R (polar decomposition)
@@ -398,15 +400,13 @@ void MultirotorModel::operator()(const MultirotorModel::InternalState& x, Multir
   }
 
   x_dot = cur_state.v;
-  // First Rigid Link Only
-  Eigen::Vector3d u_vector = thrust * R.col(2);
+  // Eigen::Vector3d u_vector = thrust * R.col(2);
 
   //////////////////////////////////////////////////////
   //////////////////////////////////////////////////////
   //////////////////////////////////////////////////////
   //////////////////////////////////////////////////////
 
-  Eigen::Vector3d rho_vector(0.0,0.0,0.1);
   Eigen::Vector3d e3(0.0,0.0,1.0);
 
   Eigen::VectorXd XK(20,1);
@@ -438,9 +438,9 @@ void MultirotorModel::operator()(const MultirotorModel::InternalState& x, Multir
   X_dot_dot_custom = compute_Xdd(params_.mass, params_.mp, params_.l, params_.g, thrust,
                      rho_vector, params_.J, torque_thrust.topRows(3), XK, e3);
 
-  ROS_INFO_THROTTLE(0.5,"Xq dot dot   : [%2.2f,%2.2f,%2.2f]",X_dot_dot_custom(0),X_dot_dot_custom(1),X_dot_dot_custom(2));
-  ROS_INFO_THROTTLE(0.5,"Omega dot dot: [%2.2f,%2.2f,%2.2f]",X_dot_dot_custom(3),X_dot_dot_custom(4),X_dot_dot_custom(5));
-  ROS_INFO_THROTTLE(0.5,"Alpha dot dot: [%2.2f]",X_dot_dot_custom(6));
+  // ROS_INFO_THROTTLE(0.5,"Xq dot dot   : [%2.2f,%2.2f,%2.2f]",X_dot_dot_custom(0),X_dot_dot_custom(1),X_dot_dot_custom(2));
+  // ROS_INFO_THROTTLE(0.5,"Omega dot dot: [%2.2f,%2.2f,%2.2f]",X_dot_dot_custom(3),X_dot_dot_custom(4),X_dot_dot_custom(5));
+  // ROS_INFO_THROTTLE(0.5,"Alpha dot dot: [%2.2f]",X_dot_dot_custom(6));
 
   for (int jj = 0; jj < 3; jj++) {
     // v_dot = -Eigen::Vector3d(0, 0, params_.g) + thrust * R.col(2) / params_.mass + external_force_ / params_.mass - resistance * vnorm / params_.mass;
@@ -540,7 +540,7 @@ void MultirotorModel::setState(const MultirotorModel::State& state) {
   state_.motor_rpm = state.motor_rpm;
 
   // First Rigid Link Only
-  state_.alpha        = state.alpha;
+  state_.alpha        = wrapToPi(state.alpha);
   state_.alpha_dot    = state.alpha_dot;
 
   updateInternalState();
@@ -617,13 +617,20 @@ Eigen::Matrix3d MultirotorModel::hatmap(const Eigen::Vector3d &v) {
   return H;
 }
 
+inline double MultirotorModel::wrapToPi(double angle) {
+    angle = std::fmod(angle + M_PI, 2.0 * M_PI);
+    if (angle < 0)
+        angle += 2.0 * M_PI;
+    return angle - M_PI;
+}
+
 // qb_vec and qt_vec as used in MATLAB version
 Eigen::Vector3d MultirotorModel::qb_vec(double alpha) {
-  return Eigen::Vector3d(std::sin(alpha), 0.0, -std::cos(alpha));
+  return Eigen::Vector3d(-std::sin(alpha), 0.0, -std::cos(alpha));
 }
 
 Eigen::Vector3d MultirotorModel::qt_vec(double alpha) {
-  return Eigen::Vector3d(std::cos(alpha), 0.0, std::sin(alpha));
+  return Eigen::Vector3d(-std::cos(alpha), 0.0, std::sin(alpha));
 }
 
 // compute X_ddot (7x1): [ xq_ddot(3); Omega_dot(3); alpha_ddot(1) ]
@@ -663,27 +670,18 @@ Eigen::VectorXd MultirotorModel::compute_Xdd(double mq, double mp, double l, dou
        XK(7), XK(10),  XK(13),
        XK(8), XK(11),  XK(14);
 
-  // R << XK(6),  XK(7),  XK(8),
-  //      XK(9), XK(10),  XK(11),
-  //      XK(12), XK(13),  XK(14);
-
   // Re-orthonormalize R (polar decomposition)
   Eigen::LLT<Eigen::Matrix3d> llt(R.transpose() * R);
   Eigen::Matrix3d             P = llt.matrixL();
   R = R * P.inverse();
 
-  ROS_INFO_THROTTLE(0.5,"Rotation matrix: [%2.2f, %2.2f, %2.2f; %2.2f, %2.2f, %2.2f; %2.2f, %2.2f, %2.2f]",
-         R(0,0), R(0,1), R(0,2),
-         R(1,0), R(1,1), R(1,2),
-         R(2,0), R(2,1), R(2,2));
-
   Eigen::Vector3d Omega (XK(15),XK(16),XK(17));
 
-  double alpha        = XK(18);
+  double alpha        = wrapToPi(XK(18));
   double alpha_dot    = XK(19);
 
   // helper matrices/vectors
-  Eigen::Matrix3d hat_rho_lqb = hatmap(rho + l * qb_vec(alpha)); // hat(rho + l*qb)
+  Eigen::Matrix3d hat_rho_lqb  = hatmap(rho + l * qb_vec(alpha)); // hat(rho + l*qb)
   Eigen::Matrix3d hat_qt       = hatmap(qt_vec(alpha));
   Eigen::Matrix3d hat_qb       = hatmap(qb_vec(alpha));
   Eigen::Matrix3d hatOmega     = hatmap(Omega);

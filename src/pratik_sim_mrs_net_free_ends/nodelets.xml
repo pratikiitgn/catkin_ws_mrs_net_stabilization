@@ -1,0 +1,7 @@
+<library path="lib/libPratikSimMrsNetFreeEnds_Simulator">
+  <class name="pratik_sim_mrs_net_free_ends/PratikSimMrsNetFreeEnds" 
+  type="pratik_sim_mrs_net_free_ends::PratikSimMrsNetFreeEnds" 
+  base_class_type="nodelet::Nodelet">
+    <description>PratikSimMrsNetFreeEnds nodelet</description>
+  </class>
+</library>
