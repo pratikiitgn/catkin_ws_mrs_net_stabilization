@@ -25,26 +25,34 @@
 #include "ode/boost/numeric/odeint.hpp"
 #include "controllers/references.hpp"
 
+#include <Eigen/Dense>
+
+using namespace Eigen;
+
 using Eigen::Matrix3d;
 using Eigen::Vector3d;
 using Eigen::VectorXd;
 using Eigen::MatrixXd;
 
-Eigen::Vector3d rho_vector(0.0,0.0,-0.05); // Vertical offset of the net mechanism underneath the drone
+Eigen::Vector3d rho_vector(0.0,0.0,-0.01); // Vertical offset of the net mechanism underneath the drone
 
-constexpr int NO_OF_LINKS         = 3;        // (n)
+constexpr int NO_OF_LINKS         = 2;        // (n)
 constexpr int NO_OF_CAP           = 2;        // (m)
 constexpr int link_dof            = 3 * NO_OF_LINKS * NO_OF_CAP;
 constexpr int q_index_start       = 18;       // MATLAB q_index_start (1-based 19) -> C++ index 18
-constexpr int q_dot_index_start   = q_index_start + 3 * NO_OF_LINKS * NO_OF_CAP;
+constexpr int q_dot_index_start   = q_index_start + link_dof;
 constexpr int N_INTERNAL_STATES   = 18 + 2 * link_dof;
+
+std::vector<std::vector<Vector3d>> q_each_link_local(NO_OF_CAP, std::vector<Vector3d>(NO_OF_LINKS));
+std::vector<std::vector<Vector3d>> q_dot_each_link_local(NO_OF_CAP, std::vector<Vector3d>(NO_OF_LINKS));
+std::vector<std::vector<Vector3d>> q_dot_dot_each_link_local(NO_OF_CAP, std::vector<Vector3d>(NO_OF_LINKS));
 
 // Other system parameters
 // system parameters
-constexpr float m_pt        = 0.1;            // Mass of each point mass
-constexpr float l_pt        = 0.3;            // Length of each links
-constexpr float mr          = 0.1;            // Mass of net rod
-constexpr float lr          = 1.0;            // half length of rod
+constexpr float m_pt        = 0.01;            // Mass of each point mass
+constexpr float l_pt        = 1.0;            // Length of each links
+constexpr float mr          = 0.05;            // Mass of net rod
+constexpr float lr          = 0.2;            // half length of rod
 
 // Assume point_mass_array and link_lengths_array are MatrixXd of size (m, n)
 MatrixXd point_mass_array     = MatrixXd::Constant(NO_OF_CAP, NO_OF_LINKS, m_pt);
@@ -56,7 +64,6 @@ Eigen::Vector3d e2(0.0,1.0,0.0);
 Eigen::Vector3d e3(0.0,0.0,1.0);
 
 // float Ts                  = 0.01;         // sampling time [s]
-
 
 namespace odeint = boost::numeric::odeint;
 
@@ -183,10 +190,6 @@ public:
 
   Eigen::Vector3d getImuAcceleration() const;
 
-  Eigen::VectorXd compute_Xdd(double mq, double mp, double l, double g, double f,
-                     const Eigen::Vector3d &rho, const Eigen::Matrix3d &Jq, const Eigen::Vector3d &M,
-                     const Eigen::VectorXd &XK, const Eigen::Vector3d &e3);
-
   // static inline Eigen::Vector3d qb_vec(double alpha);
   static inline Eigen::Matrix3d hatmap(const Eigen::Vector3d &v);
   // static inline Eigen::Vector3d qt_vec(double alpha);
@@ -212,14 +215,14 @@ public:
   int m,                          // number of branches
   double m_pt,
   double l_pt,
-  const MatrixXd &link_lengths_array,   // m x n
+  const MatrixXd &link_lengths_array,           // m x n
   const Vector3d &rho,
-  const std::vector<Vector3d> &rho_i_vectors, // size m
+  const std::vector<Vector3d> &rho_i_vectors,   // size m
   double lr,
   double g,
   double m_I,
   double intruder_position,
-  MatrixXd point_mass_array,      // m x n
+  MatrixXd point_mass_array,                    // m x n
   int drone_hitting_i_th_cable_attachment_point,
   int drone_hitting_j_th_point_mass,
   const Vector3d &e3,
@@ -277,6 +280,17 @@ MultirotorModel::MultirotorModel(const MultirotorModel::ModelParams& params, con
   state_.x                = spawn_pos;
   state_.R                = Eigen::AngleAxis(-spawn_heading, Eigen::Vector3d(0, 0, 1));
 
+  for (int i6 = 0; i6 < NO_OF_CAP; ++i6) {
+    for (int j6 = 0; j6 < NO_OF_LINKS; ++j6) {
+      int start     = (i6) * 3 * NO_OF_LINKS + (3 * j6);
+
+      // assign (make sure indices are inside vector)
+      state_.q_for_all_link(start)           =  0.0;
+      state_.q_for_all_link(start + 1)       =  0.0;
+      state_.q_for_all_link(start + 2)       = -1.0;
+    }
+  }
+  
   updateInternalState();
 }
 
@@ -294,7 +308,7 @@ void MultirotorModel::initializeState(void) {
 
   for (int i6 = 0; i6 < NO_OF_CAP; ++i6) {
     for (int j6 = 0; j6 < NO_OF_LINKS; ++j6) {
-      int start     = (i6) * 3 * NO_OF_LINKS + (3 * j6);
+      int start = (i6) * 3 * NO_OF_LINKS + (3 * j6);
 
       // assign (make sure indices are inside vector)
       state_.q_for_all_link(start)           =  0.0;
@@ -324,12 +338,12 @@ void MultirotorModel::initializeState(void) {
 void MultirotorModel::updateInternalState(void) {
 
   for (int i = 0; i < 3; ++i) {
-    internal_state_.at(0 + i)  = state_.x(i);
-    internal_state_.at(3 + i)  = state_.v(i);
-    internal_state_.at(6 + i)  = state_.R(i, 0);
-    internal_state_.at(9 + i)  = state_.R(i, 1);
-    internal_state_.at(12 + i) = state_.R(i, 2);
-    internal_state_.at(15 + i) = state_.omega(i);
+    internal_state_.at(0 + i)     = state_.x(i);
+    internal_state_.at(3 + i)     = state_.v(i);
+    internal_state_.at(6 + i)     = state_.R(i, 0);
+    internal_state_.at(9 + i)     = state_.R(i, 1);
+    internal_state_.at(12 + i)    = state_.R(i, 2);
+    internal_state_.at(15 + i)    = state_.omega(i);
   }
 
   for (int i = 0; i < link_dof; ++i) {
@@ -446,9 +460,9 @@ void MultirotorModel::operator()(const MultirotorModel::InternalState& x, Multir
     cur_state.q_dot_for_all_link(i)       = x.at(q_dot_index_start  + i);
   }
 
-  // Organize q_for_all_link and q_dot_for_all_link in each link seperately
-  std::vector<std::vector<Vector3d>> q_each_link_local(NO_OF_CAP, std::vector<Vector3d>(NO_OF_LINKS));
-  std::vector<std::vector<Vector3d>> q_dot_each_link_local(NO_OF_CAP, std::vector<Vector3d>(NO_OF_LINKS));
+  // // Organize q_for_all_link and q_dot_for_all_link in each link seperately
+  // std::vector<std::vector<Vector3d>> q_each_link_local(NO_OF_CAP, std::vector<Vector3d>(NO_OF_LINKS));
+  // std::vector<std::vector<Vector3d>> q_dot_each_link_local(NO_OF_CAP, std::vector<Vector3d>(NO_OF_LINKS));
 
   for (int i6 = 0; i6 < NO_OF_CAP; ++i6) {
     for (int j6 = 0; j6 < NO_OF_LINKS; ++j6) {
@@ -477,7 +491,6 @@ void MultirotorModel::operator()(const MultirotorModel::InternalState& x, Multir
   Eigen::Vector3d x_dot_dot_local;
   Eigen::Matrix3d R_dot_local;
   Eigen::Vector3d omega_dot_local;
-  std::vector<std::vector<Vector3d>> q_dot_dot_each_link_local(NO_OF_CAP, std::vector<Vector3d>(NO_OF_LINKS));
 
   Eigen::Matrix3d omega_tensor(Eigen::Matrix3d::Zero());
   omega_tensor(2, 1)            =  cur_state.omega(0);
@@ -500,7 +513,12 @@ void MultirotorModel::operator()(const MultirotorModel::InternalState& x, Multir
   // ROS_INFO_STREAM_THROTTLE(1,"Point Mass Array: \n" << point_mass_array);
   // ROS_INFO_STREAM_THROTTLE(1,"Link Length Array:\n" << link_lengths_array);
 
-  constexpr double distance_between_each_cable_attachment_point = 2.0 * lr / (NO_OF_CAP - 1);
+  double distance_between_each_cable_attachment_point;
+  if (NO_OF_CAP > 1){
+    distance_between_each_cable_attachment_point = 2.0 * lr / (NO_OF_CAP - 1);
+  }else{
+    distance_between_each_cable_attachment_point = 0;
+  }
 
   for (int i_rho = 0; i_rho < NO_OF_CAP; ++i_rho) {
     double distance_along_second_axis = lr - i_rho * distance_between_each_cable_attachment_point;
@@ -535,6 +553,14 @@ void MultirotorModel::operator()(const MultirotorModel::InternalState& x, Multir
   for (int i = 0; i < N_INTERNAL_STATES; ++i) {
     XK(i) = x.at(i);
   }
+
+  // ROS_INFO_STREAM_THROTTLE(1,"Quad Trans. states Operator(): " << XK.segment(0,6).transpose());
+
+  // ROS_INFO_STREAM_THROTTLE(1,"Quad Rotat. states Operator(): " << XK.segment(6,12).transpose());
+
+  // ROS_INFO_STREAM_THROTTLE(1,"Link states Operator():        " << XK.segment(q_index_start,link_dof).transpose());
+
+  // ROS_INFO_STREAM_THROTTLE(1,"Links dot states Operator():   " << XK.segment(q_dot_index_start,link_dof).transpose());
 
   // Calling the custom dynamics of the system
   Eigen::VectorXd X_dot_dot_custom(N_INTERNAL_STATES,1);
@@ -923,9 +949,8 @@ VectorXd MultirotorModel::EOM_mrs_net_free_ends(
     q_dot_for_all_link_local(i)       = XK(q_dot_index_start  + i);
   }
 
-  // Organize q_for_all_link and q_dot_for_all_link in each link seperately
-  std::vector<std::vector<Vector3d>> q_each_link_local(m, std::vector<Vector3d>(n));
-  std::vector<std::vector<Vector3d>> q_dot_each_link_local(m, std::vector<Vector3d>(n));
+  // ROS_INFO_STREAM_THROTTLE(1,"q_for_all_link_local EOM(): \n" << q_for_all_link_local.transpose());
+  // ROS_INFO_STREAM_THROTTLE(1,"q_dot_for_all_link_local EOM(): \n" << q_dot_for_all_link_local.transpose());
 
   for (int i6 = 0; i6 < m; ++i6) {
     for (int j6 = 0; j6 < n; ++j6) {
@@ -949,9 +974,11 @@ VectorXd MultirotorModel::EOM_mrs_net_free_ends(
       //                   i6, j6, v1.x(), v1.y(), v1.z());
       // ROS_INFO("q_dot_each_link_debug from EOM [%d][%d] = [%f, %f, %f]",
       //                   i6, j6, v2.x(), v2.y(), v2.z());
-
+    // ROS_INFO_STREAM_THROTTLE(1,"q_each_link_local EOM(): " << q_each_link_local[i6][j6].transpose());
+    // ROS_INFO_STREAM_THROTTLE(1,"q_dot_each_link_local EOM(): " << q_dot_each_link_local[i6][j6].transpose());
     }
   }
+
 
   // --------- Intruder mass update (MATLAB logic) ----------
   if (xq(0) >= intruder_position) {
@@ -1074,51 +1101,6 @@ VectorXd MultirotorModel::EOM_mrs_net_free_ends(
     row_idx_for_CAP += 3*n;
   }
 
-  // // ---------- Links attitude inertia assembly ----------
-  // // Build Final_intertial_matrix_link_attitudes (3*n*m x N_states_in_EOM)
-  // MatrixXd Final_intertial_matrix_link_attitudes = MatrixXd::Zero(3 * n * m, N_states_in_EOM);
-
-  // // For each link (j40=1..m, j42=1..n) assemble row-blocks as in MATLAB code
-  // // This is mechanical: see MATLAB loops to construct each 3xN row.
-  // // We'll sketch one way: for each (j40-1, j42-1) row block start at row_idx:
-  // int row_idx = 0;
-  // for (int j40 = 0; j40 < m; ++j40) {
-  //   for (int j42 = 0; j42 < n; ++j42) {
-  //     // Build column by column into a temporary 3 x N_states_in_EOM block
-  //     MatrixXd Inertia_matrix_link_attitude_column_start = MatrixXd::Zero(3, N_states_in_EOM);
-
-  //     // i41 == 0 block:
-  //     Inertia_matrix_link_attitude_column_start.block(0, 0, 3, 3) = M_0ij(j40, j42, n, point_mass_array, link_lengths_array) * hatmap(q_each_link_local[j40][j42]) * hatmap(q_each_link_local[j40][j42]);
-
-  //     // i41 in 1..m blocks:
-  //     int write_col = 3;
-  //     for (int i41 = 1; i41 <= m; ++i41) {
-  //       if (i41 - 1 == j40) {
-  //         // when i41 equals j40 + 1
-  //         // append for j43=1..n
-  //         for (int j43 = 1; j43 <= n; ++j43) {
-  //           if (j43 - 1 == j42) {
-  //             Inertia_matrix_link_attitude_column_start.block(0, write_col, 3, 3) = -M_ijk(j40, j42, j43 - 1, n, point_mass_array, link_lengths_array) * Matrix3d::Identity();
-  //           } else {
-  //             Inertia_matrix_link_attitude_column_start.block(0, write_col, 3, 3) = M_ijk(j40, j42, j43 - 1, n, point_mass_array, link_lengths_array) * hatmap(q_each_link_local[j40][j42]) * hatmap(q_each_link_local[j40][j42]);
-  //           }
-  //           write_col += 3;
-  //         }
-  //       } else {
-  //         // zero 3x3 blocks for this i41
-  //         write_col += 3 * n;
-  //       }
-  //     }
-
-  //     // i41 == m+1 block
-  //     Inertia_matrix_link_attitude_column_start.block(0, write_col, 3, 3) = -K_ij(j40, j42, R, q_each_link_local[j40][j42], n, point_mass_array, link_lengths_array, rho, rho_i_vectors);
-
-  //     // insert row-block into final matrix
-  //     Final_intertial_matrix_link_attitudes.block(row_idx, 0, 3, N_states_in_EOM) = Inertia_matrix_link_attitude_column_start;
-  //     row_idx += 3;
-  //   }
-  // }
-
   // place link attitude block into Final_Inertia
   Final_Inertia.block(3, 0, 3 * n * m, N_states_in_EOM) = Final_intertial_matrix_link_attitudes;
 
@@ -1154,7 +1136,7 @@ VectorXd MultirotorModel::EOM_mrs_net_free_ends(
   // ----------------- copy to final inertia matrix -----------------
   Final_Inertia.block(3 + 3 * n * m, 0, 3, quadcopter_attitude_inertia_matrix.cols()) = quadcopter_attitude_inertia_matrix;
 
-  // ROS_INFO_STREAM("Final_Inertia \n" << Final_Inertia);
+  // ROS_INFO_STREAM_THROTTLE(1,"Final_Inertia \n" << Final_Inertia);
 
   // ---------- Coriolis/Centripetal terms ----------
   // Build the Coriolis/centripetal term vectors to match the vertical concatenation in MATLAB
@@ -1226,16 +1208,24 @@ VectorXd MultirotorModel::EOM_mrs_net_free_ends(
 
   // ---------- Solve for X_dot_dot ----------
   // Try to solve Final_Inertia * X_dot_dot = control_input_column - coriolis_final
-  VectorXd rhs    = control_input_column - coriolis_final;
+  VectorXd rhs = VectorXd::Zero(N_states_in_EOM);
+  rhs    = control_input_column - coriolis_final;
   // VectorXd rhs       = VectorXd::Zero(N_states_in_EOM);
+  // rhs    = control_input_column;
 
   // LU solve
   Eigen::PartialPivLU<MatrixXd> lu(Final_Inertia);
+
+  // Compute rank using FullPivLU
+  FullPivLU<MatrixXd> lu_decomp(Final_Inertia);
+  int rank_of_Final_Inertia_matrix = lu_decomp.rank();
+  // ROS_INFO_STREAM_THROTTLE(1,"Rank of Inertia Matrix: " << rank_of_Final_Inertia_matrix);
+
   VectorXd X_dot_dot;
   // If the matrix is singular, this will produce NaNs or infs; caller should check
-  X_dot_dot       = lu.solve(rhs);
+  X_dot_dot                           = lu.solve(rhs);
 
-  // ROS_INFO_STREAM("X_dot_dot \n" << X_dot_dot);
+  // ROS_INFO_STREAM_THROTTLE(1,"X_dot_dot \n" << X_dot_dot.transpose());
 
   VectorXd X_ddot                     = VectorXd::Zero(N_INTERNAL_STATES);
   // VectorXd rhs       = VectorXd::Zero(N_states_in_EOM);
@@ -1273,7 +1263,7 @@ VectorXd MultirotorModel::EOM_mrs_net_free_ends(
     X_ddot.segment(dst_start, link_dof)   = X_dot_dot.segment(src_start, src_len);
   }
 
-  // ROS_INFO_STREAM("X_ddot -- final stuff 5 \n" << X_ddot);
+  // ROS_INFO_STREAM_THROTTLE(1,"X_ddot -- final stuff 5 \n" << X_ddot.transpose());
 
   return X_ddot;
 

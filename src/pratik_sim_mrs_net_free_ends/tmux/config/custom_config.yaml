@@ -64,7 +64,7 @@ mrs_uav_managers:
         tracker: "MidairActivationTracker"
 
       after_activation:
-        controller: "MpcController"
+        controller: "Se3Controller"
 
     min_height_checking:
       enabled: false

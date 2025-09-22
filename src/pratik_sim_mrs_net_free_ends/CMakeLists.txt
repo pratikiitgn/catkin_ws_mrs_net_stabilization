@@ -24,6 +24,7 @@ set(CATKIN_DEPENDENCIES
   )
 
 find_package(catkin REQUIRED COMPONENTS
+  visualization_msgs
   ${CATKIN_DEPENDENCIES}
   )
 
@@ -43,7 +44,7 @@ catkin_package(
   include/pratik_sim_mrs_net_free_ends 
   include/pratik_sim_mrs_net_free_ends/uav_system 
   include/pratik_sim_mrs_net_free_ends/uav_system/controllers
-  CATKIN_DEPENDS ${CATKIN_DEPENDENCIES}
+  CATKIN_DEPENDS ${CATKIN_DEPENDENCIES} visualization_msgs
   )
 
 include_directories(

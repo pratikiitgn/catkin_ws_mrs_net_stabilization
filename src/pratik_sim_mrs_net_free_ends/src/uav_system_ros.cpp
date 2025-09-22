@@ -1,5 +1,7 @@
 #include <uav_system_ros.h>
 
+Eigen::Vector3d sum_a_1_j_l_ia_q_ia(0.0,0.0,0.0);
+
 namespace pratik_sim_mrs_net_free_ends
 {
 
@@ -173,6 +175,9 @@ UavSystemRos::UavSystemRos(ros::NodeHandle &nh, const std::string uav_name) {
   ph_pos_of_link_load            = mrs_lib::PublisherHandler<nav_msgs::Odometry>(nh, uav_name + "/pos_of_link_load", 250, false);
   // First Rigid Link Only
   ph_pos_of_link_load_in_rviz    = mrs_lib::PublisherHandler<visualization_msgs::Marker>(nh, uav_name + "/pos_of_link_load_in_rviz", 50, false);
+
+  pub_pos_of_link_loads_rviz_    = mrs_lib::PublisherHandler<visualization_msgs::MarkerArray>(nh, uav_name + "/pos_of_link_loads_in_rviz", 50, false);
+
   ph_rangefinder_                = mrs_lib::PublisherHandler<sensor_msgs::Range>(nh, uav_name + "/rangefinder", 1, false);
 
   // | ----------------------- subscribers ---------------------- |
@@ -286,9 +291,9 @@ void UavSystemRos::makeStep(const double dt) {
   // extract the current state
   MultirotorModel::State state = uav_system_.getState();
 
-  // for (int i6 = 0; i6 < NO_OF_CAP; ++i6) {
-  //   for (int j6 = 0; j6 < NO_OF_LINKS; ++j6) {
-  //     int start     = (i6) * 3 * NO_OF_LINKS + (3 * j6);
+  // for (int i = 0; i < NO_OF_CAP; ++i) {
+  //   for (int j = 0; j < NO_OF_LINKS; ++j) {
+  //     int start     = (i) * 3 * NO_OF_LINKS + (3 * j);
 
   //     Eigen::Vector3d v1;
   //     v1(0)         = state.q_for_all_link(start);
@@ -300,9 +305,9 @@ void UavSystemRos::makeStep(const double dt) {
   //     v2(1)         = state.q_dot_for_all_link(start + 1);
   //     v2(2)         = state.q_dot_for_all_link(start + 2);
   //     ROS_INFO("q_each_link[%d][%d] = [%f, %f, %f]",
-  //                       i6, j6, v1.x(), v1.y(), v1.z());
+  //                       i, j, v1.x(), v1.y(), v1.z());
   //     ROS_INFO("q_dot_each_link[%d][%d] = [%f, %f, %f]",
-  //                       i6, j6, v2.x(), v2.y(), v2.z());
+  //                       i, j, v2.x(), v2.y(), v2.z());
   //   }
   // }
 
@@ -320,6 +325,9 @@ void UavSystemRos::makeStep(const double dt) {
 
   // First Rigid Link Only
   publish_pos_of_link_load_in_rviz(state);
+
+  // Publish all the points masses
+  publish_pos_of_link_loads_in_rviz(state);
 
   publishIMU(state);
 
@@ -519,6 +527,107 @@ void UavSystemRos::publish_pos_of_link_load_in_rviz(const MultirotorModel::State
 }
 
 //}
+
+
+void UavSystemRos::publish_pos_of_link_loads_in_rviz(const MultirotorModel::State &state) {
+
+  visualization_msgs::MarkerArray marker_array;
+  marker_array.markers.reserve(NO_OF_CAP * NO_OF_LINKS);
+
+  // base frame for markers (use your correct world frame)
+  std::string frame = _uav_name_ + "/world_origin";
+
+  int marker_id = 0;
+
+  double distance_between_each_cable_attachment_point;
+  if (NO_OF_CAP > 1){
+    distance_between_each_cable_attachment_point = 2.0 * lr / (NO_OF_CAP - 1);
+  }else{
+    distance_between_each_cable_attachment_point = 0;
+  }
+
+  for (int i_rho = 0; i_rho < NO_OF_CAP; ++i_rho) {
+    double distance_along_second_axis = lr - i_rho * distance_between_each_cable_attachment_point;
+    rho_i_vectors[i_rho] = Vector3d(0.0, distance_along_second_axis, 0.0);
+  }
+
+  for (int i = 0; i < NO_OF_CAP; ++i) {
+    for (int j = 0; j < NO_OF_LINKS; ++j) {
+
+      int start = (i) * 3 * NO_OF_LINKS + (3      * j);
+
+      q_each_link_local[i][j]       = state.q_for_all_link.segment(start, 3);
+
+      double norm_q = q_each_link_local[i][j].norm();
+
+      if (norm_q > 0) q_each_link_local[i][j] /= norm_q;
+
+      // position of the point-mass in world frame:
+      // use rho_i_vectors[i] or whatever your variable is that holds per-cap rho
+      Eigen::Vector3d rho_i         = rho_i_vectors[i];                                       // adjust name if needed
+
+      sum_a_1_j_l_ia_q_ia[0] = 0.0;
+      sum_a_1_j_l_ia_q_ia[1] = 0.0;
+      sum_a_1_j_l_ia_q_ia[2] = 0.0;
+
+      for ( int a = 1; a <= NO_OF_CAP; ++a ){
+        sum_a_1_j_l_ia_q_ia = sum_a_1_j_l_ia_q_ia + link_lengths_array(NO_OF_CAP-1, a-1) * q_each_link_local[NO_OF_CAP-1][a-1];
+      }
+
+      Eigen::Vector3d pos_of_load   = state.x + state.R * ( rho_i + rho_vector) + sum_a_1_j_l_ia_q_ia;
+
+      visualization_msgs::Marker m;
+      m.header.frame_id       = frame;
+      m.header.stamp          = ros::Time::now();
+
+      m.ns                    = "link_loads";            // namespace for grouping in RViz
+      m.id                    = marker_id++;             // unique id per marker
+      m.type                  = visualization_msgs::Marker::SPHERE;
+      m.action                = visualization_msgs::Marker::ADD;
+
+      // Set position
+      m.pose.position.x       = pos_of_load.x();
+      m.pose.position.y       = pos_of_load.y();
+      m.pose.position.z       = pos_of_load.z();
+
+      // Keep orientation identity (no rotation for sphere)
+      m.pose.orientation.x    = 0.0;
+      m.pose.orientation.y    = 0.0;
+      m.pose.orientation.z    = 0.0;
+      m.pose.orientation.w    = 1.0;
+
+      // Color (red)
+      m.color.a               = 1.0;
+      m.color.r               = 1.0;
+      m.color.g               = 0.0;
+      m.color.b               = 0.0;
+
+      // Scale (size of sphere)
+      m.scale.x               = 0.10;    // 10 cm diameter (tweak as required)
+      m.scale.y               = 0.10;
+      m.scale.z               = 0.10;
+
+      // lifetime: zero means persist until overwritten/deleted
+      m.lifetime              = ros::Duration(0.0);
+
+      // Optionally set text in the marker's namespace or text field if you want labels
+      // m.text = std::to_string(i) + "," + std::to_string(j);
+
+      marker_array.markers.push_back(m);
+    }
+  }
+
+  // To delete old markers when the number decreases, you would send DELETE actions for their ids.
+  // Here we assume constant number NO_OF_CAP * NO_OF_LINKS.
+
+  pub_pos_of_link_loads_rviz_.publish(marker_array);
+}
+
+
+
+
+
+
 
 /* publishIMU() //{ */
 

@@ -380,6 +380,9 @@ void PratikSimMrsNetFreeEnds::publishPoses(void) {
     pose.position.x  = state.x(0);
     pose.position.y  = state.x(1);
     pose.position.z  = state.x(2);
+
+    // ROS_INFO_STREAM_THROTTLE(0.01,"Quad Attitude from Node: \n" << state.R);
+
     pose.orientation = mrs_lib::AttitudeConverter(state.R);
 
     pose_array.poses.push_back(pose);
