@@ -163,17 +163,17 @@ UavSystemRos::UavSystemRos(ros::NodeHandle &nh, const std::string uav_name) {
 
   // | ----------------------- publishers ----------------------- |
 
-  ph_imu_                                   = mrs_lib::PublisherHandler<sensor_msgs::Imu>(nh, uav_name + "/imu", 250, false);
-  ph_odom_                                  = mrs_lib::PublisherHandler<nav_msgs::Odometry>(nh, uav_name + "/odom", 250, false);
+  ph_imu_                        = mrs_lib::PublisherHandler<sensor_msgs::Imu>(nh, uav_name + "/imu", 250, false);
+  ph_odom_                       = mrs_lib::PublisherHandler<nav_msgs::Odometry>(nh, uav_name + "/odom", 250, false);
   // First Rigid Link Only
-  ph_quadcopter_state                       = mrs_lib::PublisherHandler<nav_msgs::Odometry>(nh, uav_name + "/quadcopter_state", 250, false);
+  ph_quadcopter_state            = mrs_lib::PublisherHandler<nav_msgs::Odometry>(nh, uav_name + "/quadcopter_state", 250, false);
   // First Rigid Link Only
-  ph_link_state                            = mrs_lib::PublisherHandler<nav_msgs::Odometry>(nh, uav_name + "/link_state", 250, false);
+  ph_link_state                  = mrs_lib::PublisherHandler<nav_msgs::Odometry>(nh, uav_name + "/link_state", 250, false);
   // First Rigid Link Only
   ph_pos_of_link_load            = mrs_lib::PublisherHandler<nav_msgs::Odometry>(nh, uav_name + "/pos_of_link_load", 250, false);
   // First Rigid Link Only
   ph_pos_of_link_load_in_rviz    = mrs_lib::PublisherHandler<visualization_msgs::Marker>(nh, uav_name + "/pos_of_link_load_in_rviz", 50, false);
-  ph_rangefinder_                           = mrs_lib::PublisherHandler<sensor_msgs::Range>(nh, uav_name + "/rangefinder", 1, false);
+  ph_rangefinder_                = mrs_lib::PublisherHandler<sensor_msgs::Range>(nh, uav_name + "/rangefinder", 1, false);
 
   // | ----------------------- subscribers ---------------------- |
 
@@ -212,6 +212,8 @@ UavSystemRos::UavSystemRos(ros::NodeHandle &nh, const std::string uav_name) {
 
   sh_tracker_cmd_ = mrs_lib::SubscribeHandler<mrs_msgs::TrackerCommand>(shopts, uav_name + "/tracker_cmd", &UavSystemRos::callbackTrackerCmd, this);
 
+
+
   // | --------------------- tf broadcaster --------------------- |
 
   tf_broadcaster_ = std::make_shared<mrs_lib::TransformBroadcaster>();
@@ -241,7 +243,7 @@ UavSystemRos::UavSystemRos(ros::NodeHandle &nh, const std::string uav_name) {
 
   is_initialized_ = true;
 
-  ROS_INFO("[%s]: initialized", _uav_name_.c_str());
+  // ROS_INFO("[%s]: initialized", _uav_name_.c_str());
 }
 
 //}
@@ -249,6 +251,9 @@ UavSystemRos::UavSystemRos(ros::NodeHandle &nh, const std::string uav_name) {
 /* makeStep() //{ */
 
 void UavSystemRos::makeStep(const double dt) {
+
+
+
 
   // | ---------------- check timeout of an input --------------- |
 
@@ -281,8 +286,27 @@ void UavSystemRos::makeStep(const double dt) {
   // extract the current state
   MultirotorModel::State state = uav_system_.getState();
 
-  // publish data
+  // for (int i6 = 0; i6 < NO_OF_CAP; ++i6) {
+  //   for (int j6 = 0; j6 < NO_OF_LINKS; ++j6) {
+  //     int start     = (i6) * 3 * NO_OF_LINKS + (3 * j6);
 
+  //     Eigen::Vector3d v1;
+  //     v1(0)         = state.q_for_all_link(start);
+  //     v1(1)         = state.q_for_all_link(start + 1);
+  //     v1(2)         = state.q_for_all_link(start + 2);
+
+  //     Eigen::Vector3d v2;
+  //     v2(0)         = state.q_dot_for_all_link(start);
+  //     v2(1)         = state.q_dot_for_all_link(start + 1);
+  //     v2(2)         = state.q_dot_for_all_link(start + 2);
+  //     ROS_INFO("q_each_link[%d][%d] = [%f, %f, %f]",
+  //                       i6, j6, v1.x(), v1.y(), v1.z());
+  //     ROS_INFO("q_dot_each_link[%d][%d] = [%f, %f, %f]",
+  //                       i6, j6, v2.x(), v2.y(), v2.z());
+  //   }
+  // }
+
+  // publish data
   publishOdometry(state);
 
   // First Rigid Link Only
@@ -430,8 +454,8 @@ void UavSystemRos::publish_link_state(const MultirotorModel::State &state) {
   // odom.header.frame_id = _uav_name_ + "/world_origin" ;
   // odom.child_frame_id  = _frame_fcu_;
 
-  odom.pose.pose.position.x = state.alpha;
-  odom.twist.twist.linear.x = state.alpha_dot;
+  odom.pose.pose.position.x = 0;
+  odom.twist.twist.linear.x = 0;
 
   ph_link_state.publish(odom);
 }
@@ -443,7 +467,7 @@ void UavSystemRos::publish_link_state(const MultirotorModel::State &state) {
 void UavSystemRos::publish_pos_of_link_load(const MultirotorModel::State &state) {
 
   Eigen::Vector3d pos_of_load;
-  Eigen::Vector3d qb(-sin(state.alpha), 0.0, -cos(state.alpha));
+  Eigen::Vector3d qb(-sin(0.0), 0.0, -cos(0.0));
 
   pos_of_load           = state.x + state.R * ( rho_vector + model_params_.l * qb);
 
@@ -463,7 +487,7 @@ void UavSystemRos::publish_pos_of_link_load(const MultirotorModel::State &state)
 void UavSystemRos::publish_pos_of_link_load_in_rviz(const MultirotorModel::State &state) {
 
   Eigen::Vector3d pos_of_load;
-  Eigen::Vector3d qb(-sin(state.alpha), 0.0, -cos(state.alpha));
+  Eigen::Vector3d qb(-sin(0.0), 0.0, -cos(0.0));
   pos_of_load           = state.x + state.R * ( rho_vector + model_params_.l * qb);
 
   visualization_msgs::Marker marker;

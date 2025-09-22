@@ -427,7 +427,6 @@ void MultirotorModel::operator()(const MultirotorModel::InternalState& x, Multir
   // Calling the custom dynamics of the system
   Eigen::Matrix<double, 7, 1> X_dot_dot_custom;
   
-
   // double thrust_pratik = (params_.mass + params_.mp)*params_.g;
   // Eigen::Vector3d M_pratik (0.0,0.0,0.0);
 

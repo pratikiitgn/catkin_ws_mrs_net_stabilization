@@ -38,18 +38,18 @@ windows:
           custom_config:=./config/custom_config.yaml
           world_config:=./config/world_config.yaml
           network_config:=./config/network_config.yaml
-  - trajectory_load:
-      layout: tiled
-      panes:
-        - waitForTakeoff; roslaunch mrs_uav_trajectory_loader load.launch config:=./config/trajectory_loader.yaml path:=`rospack find example_controller_plugin`/trajectories
-  - trajectory_goto_start:
-      layout: tiled
-      panes:
-        - history -s roslaunch mrs_uav_trajectory_loader goto_start.launch config:=./config/trajectory_loader.yaml path:=`rospack find example_controller_plugin`/trajectories
-  - trajectory_start_tracking:
-      layout: tiled
-      panes:
-        - history -s roslaunch mrs_uav_trajectory_loader start_tracking.launch config:=./config/trajectory_loader.yaml path:=`rospack find example_controller_plugin`/trajectories
+  # - trajectory_load:
+  #     layout: tiled
+  #     panes:
+  #       - waitForTakeoff; roslaunch mrs_uav_trajectory_loader load.launch config:=./config/trajectory_loader.yaml path:=`rospack find example_controller_plugin`/trajectories
+  # - trajectory_goto_start:
+  #     layout: tiled
+  #     panes:
+  #       - history -s roslaunch mrs_uav_trajectory_loader goto_start.launch config:=./config/trajectory_loader.yaml path:=`rospack find example_controller_plugin`/trajectories
+  # - trajectory_start_tracking:
+  #     layout: tiled
+  #     panes:
+  #       - history -s roslaunch mrs_uav_trajectory_loader start_tracking.launch config:=./config/trajectory_loader.yaml path:=`rospack find example_controller_plugin`/trajectories
   - rviz:
       layout: tiled
       panes:
@@ -57,14 +57,14 @@ windows:
         - waitForControl; roslaunch mrs_rviz_plugins load_robot.launch
         - waitForControl; rviz rviz -d ./custom.rviz
         - waitForControl; waitForControl; roslaunch mrs_rviz_plugins rviz_interface.launch
-  - Tuning Gains:
-      layout: tiled
-      panes:
-        - waitForControl; sleep 3; rosrun rqt_reconfigure rqt_reconfigure
-  - Plot J:
-      layout: tiled
-      panes:
-        - waitForControl; sleep 3; rosrun plotjuggler plotjuggler
+  # - Tuning Gains:
+  #     layout: tiled
+  #     panes:
+  #       - waitForControl; sleep 3; rosrun rqt_reconfigure rqt_reconfigure
+  # - Plot J:
+  #     layout: tiled
+  #     panes:
+  #       - waitForControl; sleep 3; rosrun plotjuggler plotjuggler
   - layout:
       layout: tiled
       panes:

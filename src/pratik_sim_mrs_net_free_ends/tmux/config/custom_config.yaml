@@ -18,9 +18,9 @@ mrs_uav_managers:
 
   control_manager:
 
-    ControllerOneLinkConstraint:
-      address: "pratik_controllermrs_net_free_ends/ControllerOneLinkConstraint"
-      namespace: "controllermrs_net_free_ends"
+    ControllerMrsNetFreeEnds:
+      address: "pratik_controller_mrs_net_free_ends/ControllerMrsNetFreeEnds"
+      namespace: "controller_mrs_net_free_ends"
       eland_threshold: 20.0 # [m], position error triggering eland
       failsafe_threshold: 30.0 # [m], position error triggering failsafe land
       odometry_innovation_threshold: 1.5 # [m], position odometry innovation threshold
@@ -41,7 +41,7 @@ mrs_uav_managers:
 
     # list of names of dynamically loaded controllers
     controllers : [
-      "ControllerOneLinkConstraint",
+      "ControllerMrsNetFreeEnds",
     ]
 
     safety:
