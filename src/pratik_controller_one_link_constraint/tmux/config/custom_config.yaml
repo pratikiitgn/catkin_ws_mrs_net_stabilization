@@ -14,7 +14,7 @@ mrs_uav_managers:
 
     ControllerOneLinkConstraint:
       address: "pratik_controller_one_link_constraint/ControllerOneLinkConstraint"
-      namespace: "controller_one_link_constraint"
+      namespace: "LAC"
       eland_threshold: 20.0 # [m], position error triggering eland
       failsafe_threshold: 30.0 # [m], position error triggering failsafe land
       odometry_innovation_threshold: 1.5 # [m], position odometry innovation threshold
@@ -50,7 +50,8 @@ mrs_uav_managers:
         controller: "MpcController"
         tracker: "LandoffTracker"
       after_takeoff:
-        controller: "MpcController"
+        controller: "ControllerOneLinkConstraint"
+        tracker: "mpc_tracker"
 
     midair_activation:
       during_activation:

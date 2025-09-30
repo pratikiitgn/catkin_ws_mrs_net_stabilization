@@ -5,8 +5,8 @@ socket_name: mrs
 attach: false
 tmux_options: -f /etc/ctu-mrs/tmux.conf
 # you can modify these
-pre_window: export UAV_NAME=uav1; export RUN_TYPE=simulation; export UAV_TYPE=x500
-startup_window: simulator
+pre_window: export UAV_NAME=uav1; export RUN_TYPE=simulation; export UAV_TYPE=t650
+startup_window: status
 windows:
   - roscore:
       layout: tiled
@@ -38,18 +38,18 @@ windows:
           custom_config:=./config/custom_config.yaml
           world_config:=./config/world_config.yaml
           network_config:=./config/network_config.yaml
-  - trajectory_load:
-      layout: tiled
-      panes:
-        - waitForTakeoff; roslaunch mrs_uav_trajectory_loader load.launch config:=./config/trajectory_loader.yaml path:=`rospack find example_controller_plugin`/trajectories
-  - trajectory_goto_start:
-      layout: tiled
-      panes:
-        - history -s roslaunch mrs_uav_trajectory_loader goto_start.launch config:=./config/trajectory_loader.yaml path:=`rospack find example_controller_plugin`/trajectories
-  - trajectory_start_tracking:
-      layout: tiled
-      panes:
-        - history -s roslaunch mrs_uav_trajectory_loader start_tracking.launch config:=./config/trajectory_loader.yaml path:=`rospack find example_controller_plugin`/trajectories
+  # - trajectory_load:
+  #     layout: tiled
+  #     panes:
+  #       - waitForTakeoff; roslaunch mrs_uav_trajectory_loader load.launch config:=./config/trajectory_loader.yaml path:=`rospack find example_controller_plugin`/trajectories
+  # - trajectory_goto_start:
+  #     layout: tiled
+  #     panes:
+  #       - history -s roslaunch mrs_uav_trajectory_loader goto_start.launch config:=./config/trajectory_loader.yaml path:=`rospack find example_controller_plugin`/trajectories
+  # - trajectory_start_tracking:
+  #     layout: tiled
+  #     panes:
+  #       - history -s roslaunch mrs_uav_trajectory_loader start_tracking.launch config:=./config/trajectory_loader.yaml path:=`rospack find example_controller_plugin`/trajectories
   - rviz:
       layout: tiled
       panes:
@@ -64,11 +64,11 @@ windows:
   - Plot J:
       layout: tiled
       panes:
-        - waitForControl; sleep 3; rosrun plotjuggler plotjuggler
-  - layout:
-      layout: tiled
-      panes:
-        - waitForControl; sleep 5; ~/.i3/layout_manager.sh ./layout.json
+        - waitForControl; sleep 3; rosrun plotjuggler plotjuggler --layout ./config/gain_tuning.xml
+  # - layout:
+  #     layout: tiled
+  #     panes:
+  #       - waitForControl; sleep 5; ~/.i3/layout_manager.sh ./layout.json
   # - datalogger:
   #     layout: tiled
   #     panes:

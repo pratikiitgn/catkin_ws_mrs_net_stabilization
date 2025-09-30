@@ -33,6 +33,19 @@ collisions:
   # if crash==false, then the collisions are elastic
   rebounce: 100.0
 
+Intruder_impact_config:
+  intruder_impact_on_off: false
+
+  Impulse_in_X:   0.0
+  Impulse_in_Y:   0.0
+  Impulse_in_Z:   0.0
+
+  Impulse_in_roll:    0.0
+  Impulse_in_pitch:   0.0
+  Impulse_in_yaw:     0.0
+
+  Impulse_in_link_attitude: 0.0
+
 # randomization of the initial conditions around the desired spawn point
 randomization:
 

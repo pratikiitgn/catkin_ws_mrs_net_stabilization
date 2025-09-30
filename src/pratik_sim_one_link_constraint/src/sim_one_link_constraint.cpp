@@ -18,7 +18,11 @@
 #include <KDTreeVectorOfVectorsAdaptor.h>
 #include <Eigen/Dense>
 
+#include <mrs_lib/param_loader.h>
+
 //}
+
+bool is_impact_done = true;
 
 namespace pratik_sim_one_link_constraint
 {
@@ -31,7 +35,6 @@ class PratikSimOneLinkConstraint : public nodelet::Nodelet {
 
 public:
   virtual void onInit();
-
 private:
   ros::NodeHandle   nh_;
   std::atomic<bool> is_initialized_;
@@ -119,12 +122,27 @@ void PratikSimOneLinkConstraint::onInit() {
   param_loader.addYamlFileFromParam("config");
   param_loader.addYamlFileFromParam("config_uavs");
 
-  param_loader.loadParam("simulation_rate", _simulation_rate_);
-  param_loader.loadParam("realtime_factor", drs_params_.realtime_factor);
-  param_loader.loadParam("collisions/enabled", drs_params_.collisions_enabled);
-  param_loader.loadParam("collisions/crash", drs_params_.collisions_crash);
+  param_loader.loadParam("simulation_rate",     _simulation_rate_);
+  param_loader.loadParam("realtime_factor",     drs_params_.realtime_factor);
+  param_loader.loadParam("collisions/enabled",  drs_params_.collisions_enabled);
+  param_loader.loadParam("collisions/crash",    drs_params_.collisions_crash);
   param_loader.loadParam("collisions/rebounce", drs_params_.collisions_rebounce);
-  param_loader.loadParam("frames/world/name", _world_frame_name_);
+  param_loader.loadParam("frames/world/name",   _world_frame_name_);
+
+  param_loader.loadParam("Intruder_impact_config/intruder_impact_on_off", drs_params_.intruder_impact_on_off);
+
+  param_loader.loadParam("Intruder_impact_config/Impulse_in_X", drs_params_.Impulse_in_X);
+  param_loader.loadParam("Intruder_impact_config/Impulse_in_Y", drs_params_.Impulse_in_Y);
+  param_loader.loadParam("Intruder_impact_config/Impulse_in_Z", drs_params_.Impulse_in_Z);
+
+  param_loader.loadParam("Intruder_impact_config/Impulse_in_roll",  drs_params_.Impulse_in_roll);
+  param_loader.loadParam("Intruder_impact_config/Impulse_in_pitch", drs_params_.Impulse_in_pitch);
+  param_loader.loadParam("Intruder_impact_config/Impulse_in_yaw",   drs_params_.Impulse_in_yaw);
+
+  param_loader.loadParam("Intruder_impact_config/Impulse_in_link_attitude", drs_params_.Impulse_in_link_attitude);
+
+  // const std::string yaml_namespace_Intruder_impact = "pratik_sim_one_link_constraint/Intruder_impact_config/";
+  // private_handlers->param_loader->loadParam(yaml_namespace_Intruder_impact + "intruder_impact_on_off", drs_params_.intruder_impact_on_off);
 
   double clock_rate;
   param_loader.loadParam("clock_rate", clock_rate);
@@ -208,8 +226,33 @@ void PratikSimOneLinkConstraint::timerMain([[maybe_unused]] const ros::WallTimer
   // step the time
   sim_time_ = sim_time_ + ros::Duration(simulation_step_size);
 
+  Eigen::VectorXd Intruder_forces_torques = Eigen::VectorXd::Zero(7);
+
+    if (drs_params_.intruder_impact_on_off == true)
+    {
+      if (is_impact_done == true)
+      {
+        Eigen::Vector3d J_linear(drs_params_.Impulse_in_X, drs_params_.Impulse_in_Y, drs_params_.Impulse_in_Z);   // impulse along x
+        Eigen::Vector3d J_angular(drs_params_.Impulse_in_roll, drs_params_.Impulse_in_pitch, drs_params_.Impulse_in_yaw); // small pitch impulse
+
+        Intruder_forces_torques.segment<3>(0)   = J_linear;
+        Intruder_forces_torques.segment<3>(3)   = J_angular;
+        Intruder_forces_torques(6)              = drs_params_.Impulse_in_link_attitude;
+      }
+      else if (is_impact_done == false)
+      {
+        Intruder_forces_torques = Eigen::VectorXd::Zero(7);
+      }
+      is_impact_done = false;
+    }
+    else if (drs_params_.intruder_impact_on_off == false)
+    {
+      Intruder_forces_torques = Eigen::VectorXd::Zero(7);
+      is_impact_done = true;
+    }
+
   for (size_t i = 0; i < uavs_.size(); i++) {
-    uavs_.at(i)->makeStep(simulation_step_size);
+    uavs_.at(i)->makeStep(simulation_step_size, Intruder_forces_torques);
   }
 
   publishPoses();

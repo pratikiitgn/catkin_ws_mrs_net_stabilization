@@ -1,0 +1,7 @@
+<library path="lib/libControllerMrsNetLinkConstraintFreeEnds">
+  <class  name="pratik_controller_mrs_net_link_constraint_free_ends/ControllerMrsNetLinkConstraintFreeEnds" 
+          type="pratik_controller_mrs_net_link_constraint_free_ends::controller_mrs_net_link_constraint_free_ends::ControllerMrsNetLinkConstraintFreeEnds" 
+          base_class_type="mrs_uav_managers::Controller">
+    <description>This is the Controller for One Drone.</description>
+  </class>
+</library>

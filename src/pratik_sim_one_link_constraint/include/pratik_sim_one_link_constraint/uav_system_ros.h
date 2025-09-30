@@ -32,6 +32,7 @@
 #include <mrs_msgs/TrackerCommand.h>
 
 #include <visualization_msgs/Marker.h>
+#include <visualization_msgs/MarkerArray.h>
 
 namespace pratik_sim_one_link_constraint
 {
@@ -41,7 +42,7 @@ class UavSystemRos {
 public:
   UavSystemRos(ros::NodeHandle& nh, const std::string name);
 
-  void makeStep(const double dt);
+  void makeStep(const double dt, const Eigen::VectorXd& Intruder_forces_torques);
 
   void crash(void);
 
@@ -94,22 +95,21 @@ private:
   mrs_lib::PublisherHandler<nav_msgs::Odometry> ph_quadcopter_state;
   // First Rigid Link Only
   mrs_lib::PublisherHandler<nav_msgs::Odometry> ph_link_state;
-  // First Rigid Link Only
-  mrs_lib::PublisherHandler<nav_msgs::Odometry> ph_pos_of_link_load;
-  // First Rigid Link Only
-  mrs_lib::PublisherHandler<visualization_msgs::Marker> ph_pos_of_link_load_in_rviz;
+  
+  mrs_lib::PublisherHandler<visualization_msgs::MarkerArray> pub_pos_of_link_loads_rviz_;
 
   mrs_lib::PublisherHandler<sensor_msgs::Range> ph_rangefinder_;
+
+  mrs_lib::PublisherHandler<visualization_msgs::MarkerArray> ph_control_link;
 
   void publishOdometry(const MultirotorModel::State& state);
   // First Rigid Link Only
   void publish_quadcopter_state(const MultirotorModel::State &state);
   // First Rigid Link Only
   void publish_link_state(const MultirotorModel::State &state);
-  // First Rigid Link Only
-  void publish_pos_of_link_load(const MultirotorModel::State &state);
-  // First Rigid Link Only
-  void publish_pos_of_link_load_in_rviz(const MultirotorModel::State &state);
+
+  void pos_of_control_link_callback(const MultirotorModel::State &state);
+
 
   void publishIMU(const MultirotorModel::State& state);
   void publishRangefinder(const MultirotorModel::State& state);

@@ -19,8 +19,11 @@
 #include <mrs_lib/profiler.h>
 #include <mrs_lib/utils.h>
 #include <mrs_lib/geometry/cyclic.h>
+#include <mrs_lib/publisher_handler.h>
 
 #include <mrs_msgs/ControlManagerDiagnostics.h>
+#include <visualization_msgs/Marker.h>
+#include <visualization_msgs/MarkerArray.h>
 
 // | ----------------- Calling required libraries ----------------- |
 #include <math.h>
@@ -60,8 +63,8 @@ double _throttle_saturation_;
 
 // | ----------------- Link attitude State ----------------- |
 
-double alpha      = 0.0;
-double alpha_dot  = 0.0;
+double alpha                  = 0.0;
+double alpha_dot              = 0.0;
 
 Eigen::Vector3d     qb_link (0.0,0.0,-1.0);
 Eigen::Vector3d qb_dot_link (0.0,0.0, 0.0);
@@ -79,10 +82,17 @@ Eigen::Vector3d q_d_dot (0.0,0.0, 0.0);
 
 // | ----------------- Error in link attitude State ----------------- |
 
-double e_alpha      = 0.0;
-double e_alpha_dot  = 0.0;
+double e_alpha                = 0.0;
+double e_alpha_dot            = 0.0;
 Eigen::Vector3d     e_q       (0.0,0.0,0.0);
 Eigen::Vector3d     e_q_dot   (0.0,0.0,0.0);
+
+//  Simple bounded adaptive law for CAC gains
+// ---------- persistent states (initialize once) ----------
+static Eigen::Array3d k_p;
+static Eigen::Array3d k_d;
+static Eigen::Vector3d filt_e_q     = Eigen::Vector3d::Zero();
+static Eigen::Vector3d filt_e_qdot  = Eigen::Vector3d::Zero();
 
 // | ------------------------ profiler_ ------------------------ |
 
@@ -115,6 +125,10 @@ typedef struct
   double kq_dot_1;      // link attitude gains
   double kq_dot_2;      // link attitude gains
   double kq_dot_3;      // link attitude gains
+  double gamma_p_LAC;   // link attitude adaptation rate
+  double gamma_d_LAC;   // link attitude adaptation rate
+  double kappa_p_LAC;   // link attitude leakage rate
+  double kappa_d_LAC;   // link attitude leakage rate
 } Gains_t;
 
 /* //{ class ControllerOneLinkConstraint */
@@ -148,7 +162,15 @@ public:
                                                                  const Eigen::Vector3d& gains, const bool& parasitic_heading_rate_compensation);
   Eigen::Vector3d orientationError(const Eigen::Matrix3d& R, const Eigen::Matrix3d& Rd);
   Eigen::Matrix3d hatmap(const Eigen::Vector3d &v);
-
+  Eigen::VectorXd integrate_q_expmap_RK4(Eigen::Vector3d &q,
+                            Eigen::Vector3d &q_dot,
+                            const Eigen::Vector3d &q_ddot_des,
+                            double dt);
+  inline Eigen::Vector3d omega_dot(const Eigen::Vector3d &q,
+                                 const Eigen::Vector3d &q_ddot_des,
+                                 const Eigen::Vector3d &omega);
+  inline Eigen::Vector3d expmap_rotate(const Eigen::Vector3d &theta,
+                                     const Eigen::Vector3d &v);
   ////////////////////////////////////////////////
   //// for custom controller
   ////////////////////////////////////////////////
@@ -244,6 +266,9 @@ private:
   ros::Time rampup_last_time_;
 
   // | --------------------- timer callbacks -------------------- |
+  mrs_lib::PublisherHandler<nav_msgs::Odometry> ph_CAC_gains_values;
+  mrs_lib::PublisherHandler<visualization_msgs::Marker> ph_des_q_link;
+
 
   // | ---------------------- msg callbacks --------------------- |
   mrs_lib::SubscribeHandler<nav_msgs::Odometry>                  sh_link_states;
@@ -311,8 +336,20 @@ bool ControllerOneLinkConstraint::initialize(const ros::NodeHandle& nh, std::sha
   private_handlers->param_loader->loadParam(yaml_namespace + "kq_dot_2", gains_.kq_dot_2);
   private_handlers->param_loader->loadParam(yaml_namespace + "kq_dot_3", gains_.kq_dot_3);
 
+  // LAC - Link attitude controller auto gain tuner, parameter handles
+  const std::string yaml_namespace_LAC_gain_tuner = "pratik_controller_one_link_constraint/LAC_gain_tuner/";
+  private_handlers->param_loader->loadParam(yaml_namespace_LAC_gain_tuner + "gamma_p_LAC", gains_.gamma_p_LAC);
+  private_handlers->param_loader->loadParam(yaml_namespace_LAC_gain_tuner + "gamma_d_LAC", gains_.gamma_d_LAC);
+  private_handlers->param_loader->loadParam(yaml_namespace_LAC_gain_tuner + "kappa_p_LAC", gains_.kappa_p_LAC);
+  private_handlers->param_loader->loadParam(yaml_namespace_LAC_gain_tuner + "kappa_d_LAC", gains_.kappa_d_LAC);
+  private_handlers->param_loader->loadParam(yaml_namespace_LAC_gain_tuner + "LAC_Auto_Gain_Tuner_enabled",
+                                            drs_params_.LAC_Auto_Gain_Tuner_enabled);
+
+  ///////////////////
+
   private_handlers->param_loader->loadParam(yaml_namespace + "mass_estimator/km", gains_.km);
   private_handlers->param_loader->loadParam(yaml_namespace + "mass_estimator/km_lim", gains_.km_lim);
+
   // attitude gains
   private_handlers->param_loader->loadParam(yaml_namespace + "attitude/kq_roll_pitch", gains_.kq_roll_pitch);
   private_handlers->param_loader->loadParam(yaml_namespace + "attitude/kq_yaw", gains_.kq_yaw);
@@ -359,18 +396,23 @@ bool ControllerOneLinkConstraint::initialize(const ros::NodeHandle& nh, std::sha
   drs_params_.kdy         = gains_.kdy;
   drs_params_.kdz         = gains_.kdz;
 
-  drs_params_.kq_1         = gains_.kq_1;
-  drs_params_.kq_2         = gains_.kq_2;
-  drs_params_.kq_3         = gains_.kq_3;
-  drs_params_.kq_dot_1     = gains_.kq_dot_1;
-  drs_params_.kq_dot_2     = gains_.kq_dot_2;
-  drs_params_.kq_dot_3     = gains_.kq_dot_3;
+  drs_params_.kq_1          = gains_.kq_1;
+  drs_params_.kq_2          = gains_.kq_2;
+  drs_params_.kq_3          = gains_.kq_3;
+  drs_params_.kq_dot_1      = gains_.kq_dot_1;
+  drs_params_.kq_dot_2      = gains_.kq_dot_2;
+  drs_params_.kq_dot_3      = gains_.kq_dot_3;
 
-  drs_params_.km          = gains_.km;
-  drs_params_.km_lim      = gains_.km_lim;
-  drs_params_.kq_roll_pitch    = gains_.kq_roll_pitch;
-  drs_params_.kq_yaw           = gains_.kq_yaw;
-  drs_params_.jerk_feedforward = true;
+  drs_params_.gamma_p_LAC       = gains_.gamma_p_LAC;
+  drs_params_.gamma_d_LAC       = gains_.gamma_d_LAC;
+  drs_params_.kappa_p_LAC       = gains_.kappa_p_LAC;
+  drs_params_.kappa_d_LAC       = gains_.kappa_d_LAC;
+
+  drs_params_.km                = gains_.km;
+  drs_params_.km_lim            = gains_.km_lim;
+  drs_params_.kq_roll_pitch     = gains_.kq_roll_pitch;
+  drs_params_.kq_yaw            = gains_.kq_yaw;
+  drs_params_.jerk_feedforward  = true;
 
   drs_.reset(new Drs_t(mutex_drs_, nh_));
   drs_->updateConfig(drs_params_);
@@ -395,8 +437,16 @@ bool ControllerOneLinkConstraint::initialize(const ros::NodeHandle& nh, std::sha
   sh_link_states           = mrs_lib::SubscribeHandler<nav_msgs::Odometry>(shopts, "/sim_one_link_constraint/uav1/link_state",
                                                                                             &ControllerOneLinkConstraint::callback_link_states, this);
 
+  ph_CAC_gains_values         = mrs_lib::PublisherHandler<nav_msgs::Odometry>(nh_, "/link_attitude_gains", 250, false);
+  ph_des_q_link               = mrs_lib::PublisherHandler<visualization_msgs::Marker>(nh_, "/des_q_link", 50, false);
+
   // initialize the integrals
   uav_mass_difference_ = 0;
+
+  // Simple bounded adaptive law for CAC gains
+  
+  k_p   << gains_.kq_1,     gains_.kq_2,     gains_.kq_3;
+  k_d   << gains_.kq_dot_1, gains_.kq_dot_2, gains_.kq_dot_3;
 
   // | ----------------------- finish init ---------------------- |
 
@@ -631,6 +681,9 @@ ControllerOneLinkConstraint::ControlOutput ControllerOneLinkConstraint::updateAc
   Eigen::Vector3d position_feedback = Kp * Ep.array();
   Eigen::Vector3d velocity_feedback = Kv * Ev.array();
 
+  // ROS_INFO_STREAM_THROTTLE(0.2,"Pos Feedback:" << position_feedback.transpose());
+  // ROS_INFO_STREAM_THROTTLE(0.2,"Vel Feedback:" << velocity_feedback.transpose());
+
   Eigen::Vector3d u_quad_input      = position_feedback + velocity_feedback + feed_forward;
   
   /* mass estimatior //{ */
@@ -668,32 +721,267 @@ ControllerOneLinkConstraint::ControlOutput ControllerOneLinkConstraint::updateAc
   ROS_INFO_THROTTLE(0.5, "Mass Estimator: %2.2f", total_mass);
 
   // | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  // | ---------------- Get the states of the link --------------- |
+
+  qb_link(0)        = -sin(alpha);
+  qb_link(1)        = 0.0;
+  qb_link(2)        = -cos(alpha);
+  
+  qb_dot_link(0)    = -cos(alpha) * alpha_dot;
+  qb_dot_link(1)    = 0.0;
+  qb_dot_link(2)    =  sin(alpha) * alpha_dot;
+
+  q_link            = R * qb_link;
+  q_dot_link        = R * hatmap(Omega) * qb_link + R * qb_dot_link;
+
+  // q_link            = qb_link;
+  // q_dot_link        = qb_dot_link;
+
+  // if (Ep.norm() > 1.0)
+  // {
+/////////////////////////////////////////////////////////////////////////////////////// 
+              // // ---- compute u_perp ----
+              // Eigen::Matrix3d I             = Eigen::Matrix3d::Identity();
+              // Eigen::Vector3d q_vec         = q_link; // assume q is unit (normalize if needed)
+              // Eigen::Matrix3d P_perp        = I - q_vec * q_vec.transpose();
+
+              // double gamma                  = 0.5 / 3.0;
+              // double mq                     = 3.0;
+              // double l                      = 0.4;
+              // Eigen::Vector3d u_perp        = (1.0 / (1.0 + gamma)) * P_perp * ( total_mass * Ra + total_mass * 9.81 * e3 );
+
+              // // ---- desired q double dot (eq. (1)) ----
+              // Eigen::Vector3d q_dot_norm2   = Eigen::Vector3d::Zero(); // only need norm
+              // double qdot_norm2             = q_dot_link.squaredNorm();
+
+              // Eigen::Vector3d q_ddot_des    = - (1.0 / (mq * l)) * u_perp - qdot_norm2 * q_vec;
+              // // ROS_INFO_STREAM(" before qd " << q_d);
+
+              // Eigen::VectorXd des_q_link_state;
+              // des_q_link_state  = integrate_q_expmap_RK4(q_d, q_d_dot, q_ddot_des, dt);
+              // q_d               = des_q_link_state.segment<3>(0);
+              // q_d_dot           = des_q_link_state.segment<3>(3);
+
+              // // ROS_INFO_STREAM(" after qd " << q_d);
+
+              // Eigen::Vector3d des_pos_of_load;
+              // des_pos_of_load           = Op + l * q_d;
+
+              // visualization_msgs::Marker marker;
+
+              // marker.header.frame_id = "uav1/world_origin" ;
+              // marker.header.stamp    = ros::Time::now();
+              // marker.pose.position.x = des_pos_of_load(0);
+              // marker.pose.position.y = des_pos_of_load(1);
+              // marker.pose.position.z = des_pos_of_load(2);
+              // marker.pose.orientation = mrs_lib::AttitudeConverter(0, 0, 0);
+              // marker.color.a = 1;
+              // marker.color.r = 1;
+              // marker.color.g = 1;
+              // marker.color.b = 0;
+              // marker.scale.x = 0.2;
+              // marker.scale.y = 0.2;
+              // marker.scale.z = 0.2;
+              // marker.type         = visualization_msgs::Marker::SPHERE;
+
+              // marker.ns       = "des q link";
+              // ph_des_q_link.publish(marker);
+
+    // compute tilde q_dot and project to tangent at q_d
+    // Eigen::Vector3d qdot_tilde    = q_dot_link + q_ddot_des * dt;
+    // Eigen::Vector3d qd_dot        = qdot_tilde - q_d * (q_d.dot(qdot_tilde)); // (I - qd*qd^T) * qdot_tilde
+
+    // ---- desired angular rate omega_d such that qd_dot = omega_d x q_d ----
+    // Eigen::Vector3d omega_d = q_d.cross(qd_dot);
+
+    // ---- optional: desired angular acceleration omega_dot_d ----
+    // Eigen::Vector3d r = q_ddot_des - omega_d.cross(omega_d.cross(q_d)); // r should be perpendicular to q_d
+    // Eigen::Vector3d omega_dot_d = q_d.cross(r);
+
+  /////////////////////////////////////////////////////////////////////////////////////// 
+
+      // q_d           = u_quad_input.normalized();
+    // Eigen::Matrix3d Rd_from_tracker = mrs_lib::AttitudeConverter(tracker_command.orientation);
+    // q_d = -Rd_from_tracker.col(3);
+    // q_d = -Rd_from_tracker.col(3);
+
+  // }else{
+  q_d         << 0.0,0.0,-1.0;
+  q_d_dot     << 0.0,0.0,0.0;
+  // }
+  
+  e_q               = q_link.cross(q_link.cross(q_d));
+  e_q_dot           = q_dot_link - (q_d.cross(q_d_dot)).cross(q_link);
+
+  // | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
   // | ---------------- prepare for link Attitude Controller --------------- |
-  Eigen::Array3d kq(0.0,0.0,0.0);
-  Eigen::Array3d kq_dot(0.0,0.0,0.0);
+
+  // false  - no autotune
+  // true   - Simple bounded adaptive law
 
   Eigen::Vector3d u_link_input   (0.0,0.0,0.0);
 
+  if (drs_params_.LAC_Auto_Gain_Tuner_enabled      == true)
+  {
+    // ---------- parameters (tune these) ----------
 
-  qb_link(0)  = -sin(alpha);
-  qb_link(1)  = 0.0;
-  qb_link(2)  = -cos(alpha);
+    Eigen::Array3d k_p0; 
+    Eigen::Array3d k_d0;
 
-  qb_dot_link(0)  = -cos(alpha) * alpha_dot;
-  qb_dot_link(1)  = 0.0;
-  qb_dot_link(2)  = sin(alpha) * alpha_dot;
+    k_p0                            = kq_link;
+    k_d0                            = kq_dot_link;
 
-  q_link          = R * qb_link;
-  q_dot_link      = R * hatmap(Omega) * qb_link + R * qb_dot_link;
+    Eigen::Array3d k_p_min; k_p_min << 0.0, 0.0, 0.0;
+    Eigen::Array3d k_p_max; k_p_max << 50.0, 50.0, 50.0;
+    Eigen::Array3d k_d_min; k_d_min << 0.0, 0.0, 0.0;
+    Eigen::Array3d k_d_max; k_d_max << 50.0, 50.0, 50.0;
 
-  e_q               = q_link.cross(q_link.cross(q_d));
-  e_q_dot           = q_dot_link - (q_d.cross(q_d_dot)).cross(q_link);
-  u_link_input      = kq_link * e_q.array()  + kq_dot_link * e_q_dot.array();
+    Eigen::Array3d gamma_p; gamma_p << gains_.gamma_p_LAC, gains_.gamma_p_LAC, 0.0;   // adaptation rates
+    Eigen::Array3d gamma_d; gamma_d << gains_.gamma_d_LAC, gains_.gamma_d_LAC, 0.0;
+    Eigen::Array3d kappa_p; kappa_p << gains_.kappa_p_LAC, gains_.kappa_p_LAC, 0.0;   // leakage rates
+    Eigen::Array3d kappa_d; kappa_d << gains_.kappa_d_LAC, gains_.kappa_d_LAC, 0.0;
+
+    // filtering & rate limits
+    double alpha_filt       = 0.85;       // smoother: 0.7-0.99
+    double max_gain_rate    = 50.0;       // max change per second (elementwise cap)
+
+    // ---------- inside control loop ----------
+    // compute e_q (Vector3d) and e_q_dot (Vector3d) as you already do
+    // e_q, e_q_dot are Eigen::Vector3d
+
+    // low-pass filter the errors (sampled)
+    filt_e_q            = alpha_filt * filt_e_q    + (1.0 - alpha_filt) * e_q;
+    filt_e_qdot         = alpha_filt * filt_e_qdot + (1.0 - alpha_filt) * e_q_dot;
+
+    // compute adaptation increments (elementwise)
+    Eigen::Array3d inc_kp         = ( gamma_p * filt_e_q.array().square() )    - ( kappa_p * (k_p - k_p0) );
+    Eigen::Array3d inc_kd         = ( gamma_d * filt_e_qdot.array().square() ) - ( kappa_d * (k_d - k_d0) );
+
+    // discrete Euler update
+    Eigen::Array3d k_p_new        = k_p + dt * inc_kp;
+    Eigen::Array3d k_d_new        = k_d + dt * inc_kd;
+
+    // rate limit (per-step) to avoid jumps
+    Eigen::Array3d max_step = max_gain_rate * dt * Eigen::Array3d::Ones();
+    for (int i=0;i<3;++i) {
+        double delta_p = k_p_new[i] - k_p[i];
+        if (delta_p > max_step[i]) k_p_new[i] = k_p[i] + max_step[i];
+        if (delta_p < -max_step[i]) k_p_new[i] = k_p[i] - max_step[i];
+
+        double delta_d = k_d_new[i] - k_d[i];
+        if (delta_d > max_step[i]) k_d_new[i] = k_d[i] + max_step[i];
+        if (delta_d < -max_step[i]) k_d_new[i] = k_d[i] - max_step[i];
+    }
+
+    // projection into bounds
+    for (int i=0;i<3;++i) {
+        if (k_p_new[i] < k_p_min[i]) k_p_new[i] = k_p_min[i];
+        if (k_p_new[i] > k_p_max[i]) k_p_new[i] = k_p_max[i];
+        if (k_d_new[i] < k_d_min[i]) k_d_new[i] = k_d_min[i];
+        if (k_d_new[i] > k_d_max[i]) k_d_new[i] = k_d_max[i];
+    }
+
+
+    // commit updates
+    k_p         = k_p_new;
+    k_d         = k_d_new;
+
+    // form control
+    u_link_input = (k_p * e_q.array()).matrix() + (k_d * e_q_dot.array()).matrix();
+
+    // Publish gains values to ROS topic
+    nav_msgs::Odometry odom;
+
+    odom.header.stamp    = ros::Time::now();
+
+    odom.pose.pose.position.x = k_p(0);
+    odom.pose.pose.position.y = k_p(1);
+    odom.pose.pose.position.z = k_p(2);
+
+    odom.twist.twist.linear.x = k_d(0);
+    odom.twist.twist.linear.y = k_d(1);
+    odom.twist.twist.linear.z = k_d(2);
+
+    ph_CAC_gains_values.publish(odom);
+
+  }
+  else
+  {
+    // Eigen::Vector3d q_tangent_vec           = q_link.normalized();
+
+    // Eigen::Array3d kq_link_custom           = kq_link     * q_link.array();
+    // Eigen::Array3d kq_dot_link_custom       = kq_dot_link * q_link.array();
+
+    u_link_input      = kq_link * e_q.array()  + kq_dot_link * e_q_dot.array();
+  }
 
   // | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 
   // | ---------------- prepare the final control output --------------- |
-  Eigen::Vector3d u_control_input   = u_quad_input + u_link_input;
+
+  Eigen::Vector3d u_control_input;
+
+  //  0 - standard
+  //  1 - simple adaptive
+  //  2 - Simple QP
+  //  3 - Normlized error shaping
+
+  int which_controller = 0;
+
+  if (which_controller == 1)
+  { 
+
+    double eps          = 1e-6;
+    double gamma        = 1.0;   // tune: >1 favors link, <1 favors quad
+    double mu           = 1.0;   // relative importance of position
+
+    double norm_eq      = e_q.norm();    // link attitude error
+    double norm_ex      = Ep.norm();  // position error (choose e_pos or e_v)
+
+    double lambda       = gamma * norm_eq / (norm_eq + mu*norm_ex + eps);
+    lambda              = std::min(1.0, std::max(0.0, lambda));
+
+    u_control_input = (1.0 - lambda) * u_quad_input + lambda * u_link_input;
+
+    // ROS_INFO_STREAM_THROTTLE(0.5,"Lamda: " << lambda);
+
+  }
+  else if (which_controller == 2)
+  {
+      Eigen::Vector3d q_t;
+
+      q_t(0)      = -cos(alpha);
+      q_t(1)      = 0.0;
+      q_t(2)      =  sin(alpha);
+
+    Eigen::Vector3d q       = q_t.normalized();
+    double alpha            = 10.0; // alpha large -> prioritize link, small -> prioritize quad
+    double s                = q.dot(u_quad_input) + q.dot(u_link_input); // choice
+
+    double factor           = alpha / (1.0 + alpha);
+    double delta            = s - q.dot(u_quad_input);
+    Eigen::Vector3d u_opt   = u_quad_input + factor * delta * q;
+    u_control_input         = u_opt;
+
+  }
+  else if (which_controller == 3)
+  {
+    double gamma_p      = 1.0;
+    double gamma_alpha  = 1.0;
+
+    double norm_eq      = e_q.norm();    // link attitude error
+    double norm_ex      = Ep.norm();  // position error (choose e_pos or e_v)
+
+    double w_p          = 1.0 + gamma_p * (norm_ex*norm_ex) / (1.0 + norm_ex*norm_ex);
+    double w_alpha      = 1.0 + gamma_alpha * (norm_eq*norm_eq) / (1.0 + norm_eq*norm_eq);
+
+    u_control_input     = w_p * u_quad_input + w_alpha * u_link_input;
+
+  }
+  else if (which_controller == 0)
+  {
+    u_control_input     = u_quad_input + u_link_input;
+  }
 
   if (u_control_input(2) < 0) {
     ROS_WARN_THROTTLE(1.0, "[ControllerOneLinkConstraint]: the calculated downwards desired force is negative (%.2f) -> mitigating flip", u_control_input(2));
@@ -735,7 +1023,7 @@ ControllerOneLinkConstraint::ControlOutput ControllerOneLinkConstraint::updateAc
   // | -------------------- desired throttle -------------------- |
 
   double desired_thrust_force     = u_control_input.dot(R.col(2));
-  double throttle          = 0.0;
+  double throttle                 = 0.0;
 
   if (tracker_command.use_throttle) {
 
@@ -941,6 +1229,11 @@ void ControllerOneLinkConstraint::timerGains(const ros::TimerEvent& event) {
   gains.kq_dot_2 = calculateGainChange(dt, gains.kq_dot_2, drs_params.kq_dot_2 * gain_coeff, bypass_filter, "kq_dot_2", updated);
   gains.kq_dot_3 = calculateGainChange(dt, gains.kq_dot_3, drs_params.kq_dot_3 * gain_coeff, bypass_filter, "kq_dot_3", updated);
 
+  gains.gamma_p_LAC = calculateGainChange(dt, gains.gamma_p_LAC, drs_params.gamma_p_LAC * gain_coeff, bypass_filter, "gamma_p_LAC", updated);
+  gains.gamma_d_LAC = calculateGainChange(dt, gains.gamma_d_LAC, drs_params.gamma_d_LAC * gain_coeff, bypass_filter, "gamma_d_LAC", updated);
+  gains.kappa_p_LAC = calculateGainChange(dt, gains.kappa_p_LAC, drs_params.kappa_p_LAC * gain_coeff, bypass_filter, "kappa_p_LAC", updated);
+  gains.kappa_d_LAC = calculateGainChange(dt, gains.kappa_d_LAC, drs_params.kappa_d_LAC * gain_coeff, bypass_filter, "kappa_d_LAC", updated);  
+
   gains.km       = calculateGainChange(dt, gains.km, drs_params.km * gain_coeff, bypass_filter, "km", updated);
   gains.kq_roll_pitch = calculateGainChange(dt, gains.kq_roll_pitch, drs_params.kq_roll_pitch * gain_coeff, bypass_filter, "kq_roll_pitch", updated);
   gains.kq_yaw        = calculateGainChange(dt, gains.kq_yaw, drs_params.kq_yaw * gain_coeff, bypass_filter, "kq_yaw", updated);
@@ -962,6 +1255,11 @@ void ControllerOneLinkConstraint::timerGains(const ros::TimerEvent& event) {
     drs_params.kdz      = gains.kdz;
     drs_params.km       = gains.km;
     drs_params.km_lim   = gains.km_lim;
+
+    drs_params.gamma_p_LAC  = gains.gamma_p_LAC;
+    drs_params.gamma_d_LAC  = gains.gamma_d_LAC;
+    drs_params.kappa_p_LAC  = gains.kappa_p_LAC;
+    drs_params.kappa_d_LAC  = gains.kappa_d_LAC;
 
     drs_params.kq_1     = gains.kq_1;
     drs_params.kq_2     = gains.kq_2;
@@ -1063,8 +1361,12 @@ std::optional<mrs_msgs::HwApiAttitudeRateCmd> ControllerOneLinkConstraint::attit
 
 void ControllerOneLinkConstraint::callback_link_states(const nav_msgs::Odometry::ConstPtr msg) {
 
-  alpha     = msg->pose.pose.position.x;
-  alpha_dot = msg->twist.twist.linear.x;
+  alpha                         = msg->pose.pose.position.x;
+  // alpha_dot                     = msg->twist.twist.linear.x;
+
+  double alpha_dot_filter       = 0.85;       // smoother: 0.7-0.99
+  alpha_dot                     = alpha_dot_filter * alpha_dot    + (1.0 - alpha_dot_filter) * msg->twist.twist.linear.x;;
+
 }
 
 float ControllerOneLinkConstraint::clipping_angle(float max_value, float current_angle){
@@ -1132,6 +1434,74 @@ Eigen::Vector3d ControllerOneLinkConstraint::Matrix_vector_mul(Eigen::Matrix3d R
   return mul_vector;
 }
 
+// helper: expmap rotation (Rodrigues)
+inline Eigen::Vector3d ControllerOneLinkConstraint::expmap_rotate(const Eigen::Vector3d &theta,
+                                     const Eigen::Vector3d &v) {
+    double th = theta.norm();
+    if (th < 1e-9) {
+        // small angle expansion
+        return v + hatmap(theta) * v + 0.5 * hatmap(theta) * hatmap(theta) * v;
+    }
+    Eigen::Vector3d k = theta / th;
+    Eigen::Matrix3d K = hatmap(k);
+    return v * cos(th) + K * v * sin(th) + k * (k.dot(v)) * (1.0 - cos(th));
+}
+
+// compute omega_dot from q, q_dot, omega, and q_ddot_des
+inline Eigen::Vector3d ControllerOneLinkConstraint::omega_dot(const Eigen::Vector3d &q,
+                                 const Eigen::Vector3d &q_ddot_des,
+                                 const Eigen::Vector3d &omega) {
+    Eigen::Vector3d term = omega.cross(omega.cross(q));
+    return q.cross(q_ddot_des - term);
+}
+
+// RK4 integrator for q, omega
+inline Eigen::VectorXd ControllerOneLinkConstraint::integrate_q_expmap_RK4(Eigen::Vector3d &q,
+                            Eigen::Vector3d &q_dot,
+                            const Eigen::Vector3d &q_ddot_des,
+                            double dt) 
+{
+  
+    // ensure unit vector
+    q.normalize();
+
+    // current angular velocity
+    Eigen::Vector3d omega = q.cross(q_dot);
+
+    // RK4 integration of omega_dot
+    Eigen::Vector3d k1 = omega_dot(q, q_ddot_des, omega);
+    
+    Eigen::Vector3d k2 = omega_dot(q, q_ddot_des, omega + 0.5 * dt * k1);
+    
+    Eigen::Vector3d k3 = omega_dot(q, q_ddot_des, omega + 0.5 * dt * k2);
+    
+    Eigen::Vector3d k4 = omega_dot(q, q_ddot_des, omega + dt * k3);
+
+    Eigen::Vector3d omega_new = omega + (dt / 6.0) * (k1 + 2*k2 + 2*k3 + k4);
+
+    // average omega for rotation update (midpoint)
+    Eigen::Vector3d omega_avg = 0.5 * (omega + omega_new);
+
+    // update q using exponential map
+    Eigen::Vector3d q_new = expmap_rotate(omega_avg * dt, q);
+    q_new.normalize();
+
+    // update q_dot consistent with omega_new
+    Eigen::Vector3d q_dot_new = omega_new.cross(q_new);
+
+    // assign back
+    // q       = q_new;
+    // q_dot   = q_dot_new;
+    Eigen::VectorXd output(6);
+    
+    output.segment<3>(0) = q_new;
+    
+    output.segment<3>(3) = q_dot_new;
+    
+    return output;
+}
+
+
 Eigen::Vector3d ControllerOneLinkConstraint::Rotation_matrix_to_Euler_angle(Eigen::Matrix3d R){
 
   float sy      = sqrtf( R(0,0) * R(0,0) +  R(1,0) * R(1,0) );
@@ -1143,7 +1513,7 @@ Eigen::Vector3d ControllerOneLinkConstraint::Rotation_matrix_to_Euler_angle(Eige
   return des_roll_pitch_yaw;
 }
 
-// hat map (skew-symmetric) for a 3-vector
+// hatmap map (skew-symmetric) for a 3-vector
 Eigen::Matrix3d ControllerOneLinkConstraint::hatmap(const Eigen::Vector3d &v) {
   Eigen::Matrix3d H;
   H <<     0.0, -v.z(),  v.y(),

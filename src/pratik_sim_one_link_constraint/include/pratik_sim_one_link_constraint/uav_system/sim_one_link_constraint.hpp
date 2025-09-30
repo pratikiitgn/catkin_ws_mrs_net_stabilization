@@ -19,13 +19,29 @@
 
 #define N_INTERNAL_STATES 20
 
+using namespace Eigen;
+
+using Eigen::Matrix3d;
+using Eigen::Vector3d;
+using Eigen::VectorXd;
+using Eigen::MatrixXd;
+
 #include <boost/array.hpp>
 #include "ode/boost/numeric/odeint.hpp"
 #include "controllers/references.hpp"
 
 // small regularization to stabilize near-singular Inertia_matrix matrices
-static constexpr double REG_EPS = 1e-9;
-Eigen::Vector3d rho_vector(0.0,0.0,-0.1);
+Eigen::Vector3d rho_vector(0.0,0.0,0.0);
+// Eigen::Vector3d rho_vector(0.0,0.0,0.0);
+
+double alpha_in_EOM       = 0.0;
+double alpha_dot_in_EOM   = 0.0;
+Eigen::Matrix<double, 7, 1> X_dot_dot_custom;
+Eigen::Vector3d e3(0.0,0.0,1.0);
+
+// Eigen::Vector3d Ext_u(0.0,0.0,0.0);
+// Eigen::Vector3d Ext_M(0.0,0.0,0.0);
+// double tau_alpha          = 0.0;
 
 namespace odeint = boost::numeric::odeint;
 
@@ -39,25 +55,25 @@ public:
   public:
     ModelParams() {
 
-      // | -------- default parameters of the x500 quadrotor -------- |
+      // | -------- default parameters of the t650 quadrotor -------- |
       // it is recommended to load them through the setParams() method
 
       n_motors             = 4;
       g                    = 9.81;
-      mass                 = 2.0;
-      kf                   = 0.00000027087;
+      mass                 = 3.5;
+      kf                   = 0.00000073385;
       km                   = 0.07;
-      prop_radius          = 0.15;
-      arm_length           = 0.25;
-      body_height          = 0.1;
+      prop_radius          = 0.19;
+      arm_length           = 0.325;
+      body_height          = 0.15;
       motor_time_constant  = 0.03;
-      max_rpm              = 7800;
-      min_rpm              = 1170;
+      max_rpm              = 5832;
+      min_rpm              = 875;
       air_resistance_coeff = 0.30;
 
       // First Rigid Link Only
-      mp                    = 0.1;           // mass of load
-      l                     = 0.4;             // length of link
+      mp                    = 0.5;              // mass of load
+      l                     = 0.4;              // length of link
 
       J       = Eigen::Matrix3d::Zero();
       J(0, 0) = mass * (3.0 * arm_length * arm_length + body_height * body_height) / 12.0;
@@ -145,7 +161,7 @@ public:
 
   void setInput(const reference::Actuators& input);
 
-  void step(const double& dt);
+  void step(const double& dt, const Eigen::VectorXd& Intruder_forces_torques);
 
   typedef boost::array<double, N_INTERNAL_STATES> InternalState;
 
@@ -155,7 +171,14 @@ public:
 
   Eigen::VectorXd compute_Xdd(double mq, double mp, double l, double g, double f,
                      const Eigen::Vector3d &rho, const Eigen::Matrix3d &Jq, const Eigen::Vector3d &M,
-                     const Eigen::VectorXd &XK, const Eigen::Vector3d &e3);
+                     const Eigen::VectorXd &XK);
+
+  Eigen::VectorXd applyImpulse(Eigen::VectorXd &XK,
+                  const Eigen::Vector3d &J_linear,   // impulse on position dynamics
+                  const Eigen::Vector3d &J_angular,  // impulse on attitude
+                  double J_link_scalar,
+                  double mq, double mp, double l,
+                  const Eigen::Matrix3d &Jq);
 
   static inline Eigen::Vector3d qb_vec(double alpha);
   static inline Eigen::Matrix3d hatmap(const Eigen::Vector3d &v);
@@ -264,7 +287,7 @@ void MultirotorModel::updateInternalState(void) {
 
 /* step() //{ */
 
-void MultirotorModel::step(const double& dt) {
+void MultirotorModel::step(const double& dt, const Eigen::VectorXd& Intruder_forces_torques) {
 
   auto save = internal_state_;
 
@@ -302,6 +325,46 @@ void MultirotorModel::step(const double& dt) {
   Eigen::Matrix3d P = llt.matrixL();
   Eigen::Matrix3d R = state_.R * P.inverse();
   state_.R          = R;
+
+  Eigen::VectorXd XK(20,1);
+  
+  for (int i = 0; i < 3; i++) {
+    XK(0 + i)   = state_.x(i);
+    XK(3 + i)   = state_.v(i);  
+    XK(6 + i)   = state_.R(i, 0);
+    XK(9 + i)   = state_.R(i, 1);
+    XK(12 + i)  = state_.R(i, 2);
+    XK(15 + i)  = state_.omega(i);
+  }
+
+  // First Rigid Link Only
+    XK(18)      = state_.alpha;
+    XK(19)      = state_.alpha_dot;
+
+/////////////////////// Account for intruder's impulse
+
+    // Apply impulse at event (say at t = 2.0s)
+    // if (fabs(t - 2.0) < 1e-6) {
+    Eigen::Vector3d J_linear      = Intruder_forces_torques.segment<3>(0);
+    Eigen::Vector3d J_angular     = Intruder_forces_torques.segment<3>(3);
+    double J_link_scalar          = Intruder_forces_torques(6);
+    
+    XK = applyImpulse(XK, J_linear, J_angular, J_link_scalar, params_.mass, params_.mp, params_.l, params_.J);
+    
+  for (int i = 0; i < 3; i++) {
+      state_.x(i)       = XK(0 + i);
+      state_.v(i)       = XK(3 + i);
+      state_.R(i, 0)    = XK(6 + i);
+      state_.R(i, 1)    = XK(9 + i);
+      state_.R(i, 2)    = XK(12 + i);
+      state_.omega(i)   = XK(15 + i);
+    }
+
+  // First Rigid Link Only
+    state_.alpha        = XK(18);
+    state_.alpha_dot    = XK(19);
+
+/////////////////////////////////////////////////////////////////////
 
   // simulate the ground
   if (params_.ground_enabled) {
@@ -400,14 +463,11 @@ void MultirotorModel::operator()(const MultirotorModel::InternalState& x, Multir
   }
 
   x_dot = cur_state.v;
-  // Eigen::Vector3d u_vector = thrust * R.col(2);
 
   //////////////////////////////////////////////////////
   //////////////////////////////////////////////////////
   //////////////////////////////////////////////////////
   //////////////////////////////////////////////////////
-
-  Eigen::Vector3d e3(0.0,0.0,1.0);
 
   Eigen::VectorXd XK(20,1);
   
@@ -425,7 +485,6 @@ void MultirotorModel::operator()(const MultirotorModel::InternalState& x, Multir
     XK(19)      = x.at(19);
 
   // Calling the custom dynamics of the system
-  Eigen::Matrix<double, 7, 1> X_dot_dot_custom;
   
   // double thrust_pratik = (params_.mass + params_.mp)*params_.g;
   // Eigen::Vector3d M_pratik (0.0,0.0,0.0);
@@ -435,10 +494,10 @@ void MultirotorModel::operator()(const MultirotorModel::InternalState& x, Multir
   // ROS_INFO_THROTTLE("Initial State: [%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f,%2.2f]",XK(0),XK(1),XK(2),XK(3),XK(4),XK(5),XK(6),XK(7),XK(8),XK(9),XK(10),XK(11),XK(12),XK(13),XK(14),XK(15),XK(16),XK(17),XK(18),XK(19));
 
   X_dot_dot_custom = compute_Xdd(params_.mass, params_.mp, params_.l, params_.g, thrust,
-                     rho_vector, params_.J, torque_thrust.topRows(3), XK, e3);
+                     rho_vector, params_.J, torque_thrust.topRows(3), XK);
 
   // ROS_INFO_THROTTLE(0.5,"Xq dot dot   : [%2.2f,%2.2f,%2.2f]",X_dot_dot_custom(0),X_dot_dot_custom(1),X_dot_dot_custom(2));
-  // ROS_INFO_THROTTLE(0.5,"Omega dot dot: [%2.2f,%2.2f,%2.2f]",X_dot_dot_custom(3),X_dot_dot_custom(4),X_dot_dot_custom(5));
+  // ROS_INFO_THROTTLE(0.5,"omega dot dot: [%2.2f,%2.2f,%2.2f]",X_dot_dot_custom(3),X_dot_dot_custom(4),X_dot_dot_custom(5));
   // ROS_INFO_THROTTLE(0.5,"Alpha dot dot: [%2.2f]",X_dot_dot_custom(6));
 
   for (int jj = 0; jj < 3; jj++) {
@@ -601,12 +660,6 @@ Eigen::Vector3d MultirotorModel::getImuAcceleration() const {
 
 //}
 
-
-// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
 // hat map (skew-symmetric) for a 3-vector
 Eigen::Matrix3d MultirotorModel::hatmap(const Eigen::Vector3d &v) {
   Eigen::Matrix3d H;
@@ -623,7 +676,7 @@ inline double MultirotorModel::wrapToPi(double angle) {
     return angle - M_PI;
 }
 
-// qb_vec and qt_vec as used in MATLAB version
+// qb_vec as used in MATLAB version
 Eigen::Vector3d MultirotorModel::qb_vec(double alpha) {
   return Eigen::Vector3d(-std::sin(alpha), 0.0, -std::cos(alpha));
 }
@@ -642,13 +695,13 @@ Eigen::Vector3d MultirotorModel::qt_vec(double alpha) {
 //  0..2:   xq
 //  3..5:   xq_dot
 //  6..14:  R entries (mapping below)
-// 15..17:  Omega
+// 15..17:  omega
 // 18:      alpha
 // 19:      alpha_dot
+
 Eigen::VectorXd MultirotorModel::compute_Xdd(double mq, double mp, double l, double g, double f,
                      const Eigen::Vector3d &rho, const Eigen::Matrix3d &Jq, const Eigen::Vector3d &M,
-                     const Eigen::VectorXd &XK, const Eigen::Vector3d &e3)
-{
+                     const Eigen::VectorXd &XK){
   // input sanity
   if (XK.size() != 20) {
     throw std::runtime_error("XK must be length 20");
@@ -674,65 +727,65 @@ Eigen::VectorXd MultirotorModel::compute_Xdd(double mq, double mp, double l, dou
   Eigen::Matrix3d             P = llt.matrixL();
   R = R * P.inverse();
 
-  Eigen::Vector3d Omega (XK(15),XK(16),XK(17));
+  Eigen::Vector3d omega (XK(15),XK(16),XK(17));
 
-  double alpha        = wrapToPi(XK(18));
-  double alpha_dot    = XK(19);
+  alpha_in_EOM        = wrapToPi(XK(18));
+  alpha_dot_in_EOM    = XK(19);
 
   // helper matrices/vectors
-  Eigen::Matrix3d hat_rho_lqb  = hatmap(rho + l * qb_vec(alpha)); // hat(rho + l*qb)
-  Eigen::Matrix3d hat_qt       = hatmap(qt_vec(alpha));
-  Eigen::Matrix3d hat_qb       = hatmap(qb_vec(alpha));
-  Eigen::Matrix3d hatOmega     = hatmap(Omega);
+  Eigen::Matrix3d hat_rho_lqb  = hatmap(rho + l * qb_vec(alpha_in_EOM)); // hat(rho + l*qb)
+  Eigen::Matrix3d hat_qt       = hatmap(qt_vec(alpha_in_EOM));
+  Eigen::Matrix3d hat_qb       = hatmap(qb_vec(alpha_in_EOM));
+  Eigen::Matrix3d hatOmega     = hatmap(omega);
 
   // Build Inertia_matrix sub-blocks (as in MATLAB)
-  Eigen::Matrix3d I11 = (mq * Eigen::Matrix3d::Identity()) + (mp * Eigen::Matrix3d::Identity());
-  Eigen::Matrix3d I12 = - mp * R * hat_rho_lqb;
-  Eigen::Vector3d I13 = mp * l * (R * qt_vec(alpha));             // 3x1
+  Eigen::Matrix3d I11     = (mq * Eigen::Matrix3d::Identity()) + (mp * Eigen::Matrix3d::Identity());
+  Eigen::Matrix3d I12     = - mp * R * hat_rho_lqb;
+  Eigen::Vector3d I13     = mp * l * (R * qt_vec(alpha_in_EOM));             // 3x1
 
-  Eigen::Matrix3d I21 = mp * hat_rho_lqb * R.transpose();
-  Eigen::Matrix3d I22 = (Jq - mp * (hat_rho_lqb * hat_rho_lqb));  // Jq - mp * hat(...)^2
-  Eigen::Vector3d I23 = - mp * l * (hat_qt * (rho + l * qb_vec(alpha)));
+  Eigen::Matrix3d I21     = mp * hat_rho_lqb * R.transpose();
+  Eigen::Matrix3d I22     = (Jq - mp * (hat_rho_lqb * hat_rho_lqb));  // Jq - mp * hat(...)^2
+  Eigen::Vector3d I23     = - mp * l * (hat_qt * (rho + l * qb_vec(alpha_in_EOM)));
 
   // bottom blocks
-  Eigen::RowVector3d I31 = (mp * l * (qt_vec(alpha).transpose() * R.transpose())); // 1x3
-  Eigen::RowVector3d I32 = (mp * l * (rho + l * qb_vec(alpha)).transpose() * hat_qt); // 1x3
-  double I33 = mp * l * l;
+  Eigen::RowVector3d I31  = (mp * l * (qt_vec(alpha_in_EOM).transpose() * R.transpose())); // 1x3
+  Eigen::RowVector3d I32  = (mp * l * (rho + l * qb_vec(alpha_in_EOM)).transpose() * hat_qt); // 1x3
+  double I33              =  mp * l * l;
 
   // assemble full 7x7 Inertia_matrix matrix
   Eigen::MatrixXd Inertia_matrix = Eigen::MatrixXd::Zero(7,7);
   
-  Inertia_matrix.block<3,3>(0,0) = I11;
-  Inertia_matrix.block<3,3>(0,3) = I12;
-  Inertia_matrix.block<3,1>(0,6) = I13;
+  Inertia_matrix.block<3,3>(0,0)  = I11;
+  Inertia_matrix.block<3,3>(0,3)  = I12;
+  Inertia_matrix.block<3,1>(0,6)  = I13;
 
-  Inertia_matrix.block<3,3>(3,0) = I21;
-  Inertia_matrix.block<3,3>(3,3) = I22;
-  Inertia_matrix.block<3,1>(3,6) = I23;
+  Inertia_matrix.block<3,3>(3,0)  = I21;
+  Inertia_matrix.block<3,3>(3,3)  = I22;
+  Inertia_matrix.block<3,1>(3,6)  = I23;
 
-  Inertia_matrix.block<1,3>(6,0) = I31;
-  Inertia_matrix.block<1,3>(6,3) = I32;
-  Inertia_matrix(6,6) = I33;
+  Inertia_matrix.block<1,3>(6,0)  = I31;
+  Inertia_matrix.block<1,3>(6,3)  = I32;
+  Inertia_matrix(6,6)             = I33;
 
-// ROS_INFO_THROTTLE(0.5,"Inertia_matrix: [%f, %f, %f; %f, %f, %f; %f, %f, %f]",
-//          Inertia_matrix(0,0), Inertia_matrix(0,1), Inertia_matrix(0,2),
-//          Inertia_matrix(1,0), Inertia_matrix(1,1), Inertia_matrix(1,2),
-//          Inertia_matrix(2,0), Inertia_matrix(2,1), Inertia_matrix(2,2));
+  // ROS_INFO_THROTTLE(0.5,"Inertia_matrix: [%f, %f, %f; %f, %f, %f; %f, %f, %f]",
+  //          Inertia_matrix(0,0), Inertia_matrix(0,1), Inertia_matrix(0,2),
+  //          Inertia_matrix(1,0), Inertia_matrix(1,1), Inertia_matrix(1,2),
+  //          Inertia_matrix(2,0), Inertia_matrix(2,1), Inertia_matrix(2,2));
 
   // Build coriolis + gravity term (7x1)
-  Eigen::Vector3d C1 = mp * R * (hatOmega * hatOmega) * (rho + l * qb_vec(alpha))
-               + 2.0 * mp * l * R * hatOmega * qt_vec(alpha) * alpha_dot
-               - mp * l * R * qb_vec(alpha) * (alpha_dot * alpha_dot)
+  Eigen::Vector3d C1 = mp * R * (hatOmega * hatOmega) * (rho + l * qb_vec(alpha_in_EOM))
+               + 2.0 * mp * l * R * hatOmega * qt_vec(alpha_in_EOM) * alpha_dot_in_EOM
+               - mp * l * R * qb_vec(alpha_in_EOM) * (alpha_dot_in_EOM * alpha_dot_in_EOM)
                + (mq + mp) * g * e3;
 
-  Eigen::Vector3d C2 = hatOmega * ( Jq - mp * ( hat_rho_lqb * hat_rho_lqb ) ) * Omega
-               - mp * l * alpha_dot * hat_rho_lqb * hat_qt * Omega
-               + mp * l * (alpha_dot * alpha_dot) * hat_qb * rho
-               - mp * l * alpha_dot * hatOmega * hat_qt * ( rho + l * qb_vec(alpha) )
+  Eigen::Vector3d C2 = hatOmega * ( Jq - mp * ( hat_rho_lqb * hat_rho_lqb ) ) * omega
+               - mp * l * alpha_dot_in_EOM * hat_rho_lqb * hat_qt * omega
+               + mp * l * (alpha_dot_in_EOM * alpha_dot_in_EOM) * hat_qb * rho
+               - mp * l * alpha_dot_in_EOM * hatOmega * hat_qt * ( rho + l * qb_vec(alpha_in_EOM) )
                + mp * g * ( hatmap(rho) + l * hat_qb ) * R.transpose() * e3;
 
-  double C3 = mp * l * ( (Omega.transpose() * hat_rho_lqb * hat_qt * Omega)(0,0) )
-            + mp * l * ( (e3.transpose() * (R * qt_vec(alpha)))(0,0) );
+  double C3 = mp * l * ( (omega.transpose() * hat_rho_lqb * hat_qt * omega)(0,0) )
+            + mp * l * ( (e3.transpose() * (R * qt_vec(alpha_in_EOM)))(0,0) );
 
   Eigen::VectorXd coriolis_gravity(7);
 
@@ -765,13 +818,39 @@ Eigen::VectorXd MultirotorModel::compute_Xdd(double mq, double mp, double l, dou
   return X_dot_dot;
 }
 
+Eigen::VectorXd MultirotorModel::applyImpulse(Eigen::VectorXd &XK,
+                  const Eigen::Vector3d &J_linear,   // impulse on position dynamics
+                  const Eigen::Vector3d &J_angular,  // impulse on attitude
+                  double J_link_scalar,
+                  double mq, double mp, double l,
+                  const Eigen::Matrix3d &Jq)
+{
+    if (XK.size() != 20) {
+        throw std::runtime_error("XK must be length 20");
+    }
 
-// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    double mt = mq + mp; // total mass
 
+    // 1. Linear velocity update
+    Eigen::Vector3d vq(XK(3), XK(4), XK(5));
+    vq += J_linear / mt;
+    XK.segment<3>(3) = vq;
 
+    // 2. Angular velocity update
+    Eigen::Vector3d Omega(XK(15), XK(16), XK(17));
+    Omega += Jq.inverse() * J_angular;
+    XK.segment<3>(15) = Omega;
+
+    // 3. Optional: link angular rate update (alpha_dot)
+    // impulse projected on link DOF
+    // assume J_link is aligned with alpha_dot (scalar DOF)
+    // e.g. J_link_scalar / (mp * l^2)
+    // here we just add a placeholder
+    double alpha_dot = XK(19);
+    alpha_dot += J_link_scalar / (mp * l * l);
+    XK(19) = alpha_dot;
+    return XK;
+}
 
 
 }  // namespace pratik_sim_one_link_constraint

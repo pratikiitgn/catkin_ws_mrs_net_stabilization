@@ -6,21 +6,25 @@ pratik_controller_one_link_constraint:
     desired_yaw:          0.0 # [rad]
     desired_thrust_force: 0.0 # [N], additional to gravity compensation
 
-    kpx: 90.0     # 0.7  # 2.0 # 5.5  # 10.0
-    kpy: 90.0     # 0.7  # 2.0 # 5.5  # 10.0
+    kpx: 8.0     # 0.7  # 2.0 # 5.5  # 10.0
+    kpy: 8.0     # 0.7  # 2.0 # 5.5  # 10.0
     kpz: 55.0    # 10.0 # 10.0 # 10.0 # 10.0
 
     kdx: 25.0     # 5.5 # 2.8 # 5.0  # 8.0
     kdy: 25.0     # 5.5 # 2.8 # 5.0  # 8.0
     kdz: 45.0    # 10.0  # 8.0 # 8.0  # 8.0
 
+    # Kp_scalar = m_p * l * l * omega_n * omega_n;
+
+    # Kd_scalar = m_p * l * l * (2.0 * zeta * omega_n);
+
     kq_1: 10.0
     kq_2: 10.0
     kq_3: 10.0
 
-    kq_dot_1: 0.1
-    kq_dot_2: 0.1
-    kq_dot_3: 0.1
+    kq_dot_1: 3.0
+    kq_dot_2: 3.0
+    kq_dot_3: 3.0
 
     attitude:
       kq_roll_pitch: 3.0
@@ -29,6 +33,13 @@ pratik_controller_one_link_constraint:
     mass_estimator:
       km: 0.5
       km_lim: 20.0 # [kg, at least 1/2 of the UAVs mass to allow landing detection]
+
+  LAC_gain_tuner:
+    gamma_p_LAC: 20.0
+    gamma_d_LAC: 0.5
+    kappa_p_LAC: 1.0
+    kappa_d_LAC: 0.8
+    LAC_Auto_Gain_Tuner_enabled: false
 
   gain_filtering:
 
@@ -57,3 +68,17 @@ pratik_controller_one_link_constraint:
     tilt_angle_failsafe:
       enabled: true
       limit: 90.0 # [deg]
+
+
+# double omega_n = 2.0 * M_PI * fn;
+# double M_alpha = m_p * l * l;
+# double Kp_scalar = M_alpha * omega_n * omega_n;
+# double Kd_scalar = M_alpha * (2.0 * zeta * omega_n);
+
+
+# fn = 1.5, m_p = 0.5, 
+# double omega_n = 2.0 * 3.14 * 1.5;                    = 9.42
+# double M_alpha = 0.5 * 0.4 * 0.4;                     = 0.08
+# double Kp_scalar = M_alpha * omega_n * omega_n;       = 7.098
+# double Kd_scalar = M_alpha * (2.0 * zeta * omega_n);  = 1.2
+

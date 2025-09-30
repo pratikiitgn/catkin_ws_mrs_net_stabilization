@@ -12,7 +12,7 @@
 // xq               - 3
 // xq_dot           - 3
 // R                - 9
-// Omega            - 3
+// omega            - 3
 // q_ij's           - 3 * n * m
 // q_dot_ij's       - 3 * n * m
 
@@ -927,10 +927,10 @@ VectorXd MultirotorModel::EOM_mrs_net_free_ends(
   Eigen::Matrix3d             P = llt.matrixL();
   R = R * P.inverse();
 
-  Vector3d Omega;
-  Omega << XK(15), XK(16), XK(17);
+  Vector3d omega;
+  omega << XK(15), XK(16), XK(17);
 
-  Matrix3d R_dot = R * hatmap(Omega);
+  Matrix3d R_dot = R * hatmap(omega);
 
   // Now extract q_for_all_link and q_dot_for_all_link
   if (static_cast<int>(XK.size()) < q_index_start + 2*link_dof) {
@@ -1143,7 +1143,7 @@ VectorXd MultirotorModel::EOM_mrs_net_free_ends(
   VectorXd coriolis_final = VectorXd::Zero(N_states_in_EOM);
 
   // quad position term
-  Vector3d coriolis_quad_pos = R * hatmap(Omega) * hatmap(Omega) * K1_vector(point_mass_array, mr, rho, rho_i_vectors, m, n);
+  Vector3d coriolis_quad_pos = R * hatmap(omega) * hatmap(omega) * K1_vector(point_mass_array, mr, rho, rho_i_vectors, m, n);
   coriolis_quad_pos += M_00(point_mass_array, mq, mr) * g * e3;
   coriolis_final.segment(0, 3) = coriolis_quad_pos;
 
@@ -1163,7 +1163,7 @@ VectorXd MultirotorModel::EOM_mrs_net_free_ends(
 
       Vector3d term = - M_ijk(j60, j62, j62, n, point_mass_array, link_lengths_array) * q_each_link_local[j60-1][j62-1] * q_dot_each_link_local[j60-1][j62-1].norm() * q_dot_each_link_local[j60-1][j62-1].norm();
 
-      term += sum_of_m_ij_temp * link_lengths_array(j60-1, j62-1) * hatmap(q_each_link_local[j60-1][j62-1]) * hatmap(q_each_link_local[j60-1][j62-1]) * R * hatmap(Omega) * hatmap(Omega) * (rho + rho_i_vectors[j60-1]);
+      term += sum_of_m_ij_temp * link_lengths_array(j60-1, j62-1) * hatmap(q_each_link_local[j60-1][j62-1]) * hatmap(q_each_link_local[j60-1][j62-1]) * R * hatmap(omega) * hatmap(omega) * (rho + rho_i_vectors[j60-1]);
 
       term += M_0ij(j60, j62, n, point_mass_array, link_lengths_array) * g * hatmap(q_each_link_local[j60-1][j62-1]) * hatmap(q_each_link_local[j60-1][j62-1]) * e3;
 
@@ -1179,14 +1179,14 @@ VectorXd MultirotorModel::EOM_mrs_net_free_ends(
 
 
   // quadcopter attitude coriolis
-  Vector3d coriolis_quad_att = hatmap(Omega) * J_bar(point_mass_array, mr, rho, rho_i_vectors, e2, Jq, n, m, lr) * Omega;
+  Vector3d coriolis_quad_att = hatmap(omega) * J_bar(point_mass_array, mr, rho, rho_i_vectors, e2, Jq, n, m, lr) * omega;
 
   for (int j63 = 1; j63 <= m; ++j63) {
 
     for (int j64 = 1; j64 <= n; ++j64) {
 
       Matrix3d KR = K_R_ij_matrix(j63, j64, n, point_mass_array, link_lengths_array, rho, rho_i_vectors);
-      coriolis_quad_att -= KR * hatmap(Omega) * R.transpose() * q_dot_each_link_local[j63-1][j64-1];
+      coriolis_quad_att -= KR * hatmap(omega) * R.transpose() * q_dot_each_link_local[j63-1][j64-1];
     }
   
   }

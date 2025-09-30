@@ -34,7 +34,8 @@ public:
   UavSystem(const MultirotorModel::ModelParams& model_params);
   UavSystem(const MultirotorModel::ModelParams& model_params, const Eigen::Vector3d spawn_pos, const double spawn_heading);
 
-  void makeStep(const double dt);
+  // void makeStep(const double dt);
+  void makeStep(const double dt, const Eigen::VectorXd& Intruder_forces_torques);
 
   void crash(void);
   bool hasCrashed(void);
@@ -300,7 +301,7 @@ void UavSystem::applyForce(const Eigen::Vector3d& force) {
 
 /* makeStep() //{ */
 
-void UavSystem::makeStep(const double dt) {
+void UavSystem::makeStep(const double dt, const Eigen::VectorXd& Intruder_forces_torques) {
 
   INPUT_MODE active_input = active_input_;
 
@@ -375,7 +376,7 @@ void UavSystem::makeStep(const double dt) {
   // set the motor input for the model
   multirotor_model_.setInput(actuators_cmd_);
 
-  multirotor_model_.step(dt);
+  multirotor_model_.step(dt, Intruder_forces_torques);
 }
 
 //}

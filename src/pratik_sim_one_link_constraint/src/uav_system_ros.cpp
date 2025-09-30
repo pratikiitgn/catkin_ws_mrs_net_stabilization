@@ -1,5 +1,7 @@
 #include <uav_system_ros.h>
 
+
+
 namespace pratik_sim_one_link_constraint
 {
 
@@ -170,10 +172,11 @@ UavSystemRos::UavSystemRos(ros::NodeHandle &nh, const std::string uav_name) {
   // First Rigid Link Only
   ph_link_state                            = mrs_lib::PublisherHandler<nav_msgs::Odometry>(nh, uav_name + "/link_state", 250, false);
   // First Rigid Link Only
-  ph_pos_of_link_load            = mrs_lib::PublisherHandler<nav_msgs::Odometry>(nh, uav_name + "/pos_of_link_load", 250, false);
-  // First Rigid Link Only
-  ph_pos_of_link_load_in_rviz    = mrs_lib::PublisherHandler<visualization_msgs::Marker>(nh, uav_name + "/pos_of_link_load_in_rviz", 50, false);
   ph_rangefinder_                           = mrs_lib::PublisherHandler<sensor_msgs::Range>(nh, uav_name + "/rangefinder", 1, false);
+
+  ph_control_link                = mrs_lib::PublisherHandler<visualization_msgs::MarkerArray>(nh, uav_name + "/pos_of_control_link", 50, false);
+
+  pub_pos_of_link_loads_rviz_    = mrs_lib::PublisherHandler<visualization_msgs::MarkerArray>(nh, uav_name + "/pos_of_link_loads_in_rviz", 50, false);
 
   // | ----------------------- subscribers ---------------------- |
 
@@ -236,8 +239,8 @@ UavSystemRos::UavSystemRos(ros::NodeHandle &nh, const std::string uav_name) {
   uav_system_.setInput(actuators_cmd);
 
   // iterate the model twise to initialize all the states
-  uav_system_.makeStep(0.01);
-  uav_system_.makeStep(0.01);
+  uav_system_.makeStep(0.01, Eigen::VectorXd::Zero(7));
+  uav_system_.makeStep(0.01, Eigen::VectorXd::Zero(7));
 
   is_initialized_ = true;
 
@@ -248,7 +251,7 @@ UavSystemRos::UavSystemRos(ros::NodeHandle &nh, const std::string uav_name) {
 
 /* makeStep() //{ */
 
-void UavSystemRos::makeStep(const double dt) {
+void UavSystemRos::makeStep(const double dt, const Eigen::VectorXd& Intruder_forces_torques) {
 
   // | ---------------- check timeout of an input --------------- |
 
@@ -275,7 +278,7 @@ void UavSystemRos::makeStep(const double dt) {
     std::scoped_lock lock(mutex_uav_system_);
 
     // iterate the model
-    uav_system_.makeStep(dt);
+    uav_system_.makeStep(dt, Intruder_forces_torques);
   }
 
   // extract the current state
@@ -291,11 +294,7 @@ void UavSystemRos::makeStep(const double dt) {
   // First Rigid Link Only
   publish_link_state(state);
 
-  // First Rigid Link Only
-  publish_pos_of_link_load(state);
-
-  // First Rigid Link Only
-  publish_pos_of_link_load_in_rviz(state);
+  pos_of_control_link_callback(state);
 
   publishIMU(state);
 
@@ -437,61 +436,196 @@ void UavSystemRos::publish_link_state(const MultirotorModel::State &state) {
 }
 
 
-// First Rigid Link Only
-/* publish_pos_of_link_load() //{ */
+void UavSystemRos::pos_of_control_link_callback(const MultirotorModel::State &state) {
 
-void UavSystemRos::publish_pos_of_link_load(const MultirotorModel::State &state) {
+  visualization_msgs::MarkerArray marker_array;
+  marker_array.markers.clear();
+  int marker_id = 0;
 
-  Eigen::Vector3d pos_of_load;
-  Eigen::Vector3d qb(-sin(state.alpha), 0.0, -cos(state.alpha));
+  std::string frame = _uav_name_ + "/world_origin";
+  // Choose connection mode:
+  // const bool connect_all = true;
 
-  pos_of_load           = state.x + state.R * ( rho_vector + model_params_.l * qb);
+  int NO_OF_CAP     = 5;
+  double lr         = 1;
+  std::vector<Eigen::Vector3d> rho_i_vectors(NO_OF_CAP);
 
-  nav_msgs::Odometry odom;
+  marker_array.markers.reserve(NO_OF_CAP);
+  std::vector<geometry_msgs::Point> top_points;
+  std::vector<geometry_msgs::Point> bottom_points;
 
-  odom.header.stamp    = ros::Time::now();
-  odom.header.frame_id = _uav_name_ + "/world_origin" ;
-  odom.child_frame_id  = _frame_fcu_;
+  // base frame for markers (use your correct world frame)
 
-  odom.pose.pose.position.x = pos_of_load(0);
-  odom.pose.pose.position.y = pos_of_load(1);
-  odom.pose.pose.position.z = pos_of_load(2);
+  double distance_between_each_cable_attachment_point;
+  if (NO_OF_CAP > 1){
+    distance_between_each_cable_attachment_point = 2.0 * lr / (NO_OF_CAP - 1);
+  }else{
+    distance_between_each_cable_attachment_point = 0;
+  }
 
-  ph_pos_of_link_load.publish(odom);
-}
+  for (int i_rho = 0; i_rho < NO_OF_CAP; ++i_rho) {
+    double distance_along_second_axis = lr - i_rho * distance_between_each_cable_attachment_point;
+    rho_i_vectors[i_rho] = Vector3d(0.0, distance_along_second_axis, 0.0);
+  }
 
-void UavSystemRos::publish_pos_of_link_load_in_rviz(const MultirotorModel::State &state) {
+  for (int i = 0; i < NO_OF_CAP; ++i) {
 
-  Eigen::Vector3d pos_of_load;
-  Eigen::Vector3d qb(-sin(state.alpha), 0.0, -cos(state.alpha));
-  pos_of_load           = state.x + state.R * ( rho_vector + model_params_.l * qb);
+      Eigen::Vector3d qb_vec_temp(-std::sin(state.alpha), 0.0, -std::cos(state.alpha));
 
-  visualization_msgs::Marker marker;
+      Eigen::Vector3d pos_of_load   = state.x + state.R * ( rho_vector + rho_i_vectors[i] + model_params_.l * qb_vec_temp);
 
-  marker.header.frame_id = _uav_name_ + "/world_origin" ;
-  marker.header.stamp    = ros::Time::now();
+      visualization_msgs::Marker m;
+      m.header.frame_id       = frame;
+      m.header.stamp          = ros::Time::now();
 
-  marker.pose.position.x = pos_of_load(0);
-  marker.pose.position.y = pos_of_load(1);
-  marker.pose.position.z = pos_of_load(2);
+      m.ns                    = "Control Link";            // namespace for grouping in RViz
+      m.id                    = marker_id++;             // unique id per marker
+      m.type                  = visualization_msgs::Marker::SPHERE;
+      m.action                = visualization_msgs::Marker::ADD;
 
-  marker.pose.orientation = mrs_lib::AttitudeConverter(0, 0, 0);
+      // Set position
+      m.pose.position.x       = pos_of_load.x();
+      m.pose.position.y       = pos_of_load.y();
+      m.pose.position.z       = pos_of_load.z();
 
-  marker.color.a = 1;
-  marker.color.r = 1;
-  marker.color.g = 0;
-  marker.color.b = 0;
+      // Keep orientation identity (no rotation for sphere)
+      m.pose.orientation.x    = 0.0;
+      m.pose.orientation.y    = 0.0;
+      m.pose.orientation.z    = 0.0;
+      m.pose.orientation.w    = 1.0;
 
-  marker.scale.x = 0.2;
-  marker.scale.y = 0.2;
-  marker.scale.z = 0.2;
+      // Color (red)
+      m.color.a               = 1.0;
+      m.color.r               = 1.0;
+      m.color.g               = 0.0;
+      m.color.b               = 0.0;
 
-  marker.type = visualization_msgs::Marker::SPHERE;
+      // Scale (size of sphere)
+      m.scale.x               = 0.10;    // 10 cm diameter (tweak as required)
+      m.scale.y               = 0.10;
+      m.scale.z               = 0.10;
 
-  marker.ns       = "link_load";
-  // marker.lifetime = ros::Duration(2.0 / 100.0);
+      // lifetime: zero means persist until overwritten/deleted
+      m.lifetime              = ros::Duration(0.0);
 
-  ph_pos_of_link_load_in_rviz.publish(marker);
+      // Optionally set text in the marker's namespace or text field if you want labels
+      // m.text = std::to_string(i) + "," + std::to_string(j);
+
+      marker_array.markers.push_back(m);
+
+    // remember the point for line drawing
+    geometry_msgs::Point gp;
+    gp.x = pos_of_load.x();
+    gp.y = pos_of_load.y();
+    gp.z = pos_of_load.z();
+    top_points.push_back(gp);
+
+  }
+
+  for (int i = 0; i < NO_OF_CAP; ++i) {
+
+      Eigen::Vector3d qb_vec_temp(-std::sin(state.alpha), 0.0, -std::cos(state.alpha));
+
+      Eigen::Vector3d pos_of_load   = state.x + state.R * ( rho_vector + rho_i_vectors[i]);
+
+      visualization_msgs::Marker m;
+      m.header.frame_id       = frame;
+      m.header.stamp          = ros::Time::now();
+
+      m.ns                    = "Control Link";            // namespace for grouping in RViz
+      m.id                    = marker_id++;             // unique id per marker
+      m.type                  = visualization_msgs::Marker::SPHERE;
+      m.action                = visualization_msgs::Marker::ADD;
+
+      // Set position
+      m.pose.position.x       = pos_of_load.x();
+      m.pose.position.y       = pos_of_load.y();
+      m.pose.position.z       = pos_of_load.z();
+
+      // Keep orientation identity (no rotation for sphere)
+      m.pose.orientation.x    = 0.0;
+      m.pose.orientation.y    = 0.0;
+      m.pose.orientation.z    = 0.0;
+      m.pose.orientation.w    = 1.0;
+
+      // Color (red)
+      m.color.a               = 1.0;
+      m.color.r               = 1.0;
+      m.color.g               = 0.0;
+      m.color.b               = 0.0;
+
+      // Scale (size of sphere)
+      m.scale.x               = 0.10;    // 10 cm diameter (tweak as required)
+      m.scale.y               = 0.10;
+      m.scale.z               = 0.10;
+
+      // lifetime: zero means persist until overwritten/deleted
+      m.lifetime              = ros::Duration(0.0);
+
+      // Optionally set text in the marker's namespace or text field if you want labels
+      // m.text = std::to_string(i) + "," + std::to_string(j);
+
+      marker_array.markers.push_back(m);
+
+    // remember the point for line drawing
+    geometry_msgs::Point gp;
+    gp.x = pos_of_load.x();
+    gp.y = pos_of_load.y();
+    gp.z = pos_of_load.z();
+    bottom_points.push_back(gp);
+
+  }
+
+  // Create line marker
+  if (!top_points.empty()) {
+    visualization_msgs::Marker line;
+    line.header.frame_id = frame;
+    line.header.stamp    = ros::Time::now();
+    line.ns              = "Control Link Line";
+    line.id              = marker_id++;
+    line.action          = visualization_msgs::Marker::ADD;
+    line.type            = visualization_msgs::Marker::LINE_STRIP; // use LINE_LIST for separated segments
+
+    // set width (scale.x) and color
+    line.scale.x = 0.05; // thickness
+    line.color.a = 1.0;
+    line.color.r = 0.0;
+    line.color.g = 0.0;
+    line.color.b = 1.0;
+
+    for (const auto &p : top_points) line.points.push_back(p);
+
+    line.lifetime = ros::Duration(0.0);
+    marker_array.markers.push_back(line);
+  }
+
+  // Create line marker
+  if (!bottom_points.empty()) {
+    visualization_msgs::Marker line;
+    line.header.frame_id = frame;
+    line.header.stamp    = ros::Time::now();
+    line.ns              = "Control Link Line";
+    line.id              = marker_id++;
+    line.action          = visualization_msgs::Marker::ADD;
+    line.type            = visualization_msgs::Marker::LINE_STRIP; // use LINE_LIST for separated segments
+
+    // set width (scale.x) and color
+    line.scale.x = 0.05; // thickness
+    line.color.a = 1.0;
+    line.color.r = 0.0;
+    line.color.g = 0.0;
+    line.color.b = 1.0;
+
+    for (const auto &p : bottom_points) line.points.push_back(p);
+
+    line.lifetime = ros::Duration(0.0);
+    marker_array.markers.push_back(line);
+  }
+
+  // To delete old markers when the number decreases, you would send DELETE actions for their ids.
+  // Here we assume constant number NO_OF_CAP * NO_OF_LINKS.
+
+  ph_control_link.publish(marker_array);
 }
 
 //}

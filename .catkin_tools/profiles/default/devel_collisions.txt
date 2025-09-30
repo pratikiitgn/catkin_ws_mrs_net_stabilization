@@ -1,3 +1,6 @@
 /home/mrs/catkin_ws_single_link_done/devel/lib/libMrsMultirotorSimulator_Simulator.so 63
 /home/mrs/catkin_ws_single_link_done/devel/lib/libMrsMultirotorSimulator_SimulatorSystemRos.so 63
 /home/mrs/catkin_ws_single_link_done/devel/lib/libMrsMultirotorSimulator_HwApiPlugin.so 63
+/home/mrs/catkin_ws_mrs_net_stabilization/devel/lib/libPratikSimMrsNetFreeEnds_HwApiPlugin.so 61
+/home/mrs/catkin_ws_mrs_net_stabilization/devel/lib/libPratikSimMrsNetFreeEnds_SimulatorSystemRos.so 61
+/home/mrs/catkin_ws_mrs_net_stabilization/devel/lib/libPratikSimMrsNetFreeEnds_Simulator.so 61

@@ -1,28 +1,28 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <root>
  <tabbed_widget name="Main Window" parent="main_window">
-  <Tab containers="1" tab_name="tab1">
+  <Tab containers="1" tab_name="Drone">
    <Container>
-    <DockSplitter count="3" orientation="-" sizes="0.333919;0.332162;0.333919">
+    <DockSplitter count="3" sizes="0.35;0.35;0.3" orientation="-">
      <DockArea name="...">
-      <plot flip_y="false" style="Lines" mode="TimeSeries" flip_x="false">
-       <range left="0.424000" bottom="-0.000266" right="32.208000" top="0.000006"/>
+      <plot style="Lines" flip_x="false" mode="TimeSeries" flip_y="false">
+       <range right="45.948000" top="4.273459" bottom="-0.155694" left="5.948000"/>
        <limitY/>
        <curve color="#1f77b4" name="/uav1/estimation_manager/uav_state/pose/position/x"/>
        <curve color="#d62728" name="/uav1/estimation_manager/uav_state/velocity/linear/x"/>
       </plot>
      </DockArea>
      <DockArea name="...">
-      <plot flip_y="false" style="Lines" mode="TimeSeries" flip_x="false">
-       <range left="0.000000" bottom="-0.100260" right="32.208000" top="0.099740"/>
+      <plot style="Lines" flip_x="false" mode="TimeSeries" flip_y="false">
+       <range right="45.948000" top="4.272220" bottom="-0.104866" left="5.948000"/>
        <limitY/>
-       <curve color="#1f77b4" name="/uav1/estimation_manager/uav_state/pose/position/x"/>
-       <curve color="#d62728" name="/uav1/control_manager/control_reference/pose/pose/position/x"/>
+       <curve color="#0058ff" name="/uav1/estimation_manager/uav_state/pose/position/x"/>
+       <curve color="#ff3500" name="/uav1/control_manager/tracker_cmd/position/x"/>
       </plot>
      </DockArea>
      <DockArea name="...">
-      <plot flip_y="false" style="Lines" mode="TimeSeries" flip_x="false">
-       <range left="0.032000" bottom="-0.100000" right="32.128000" top="0.100000"/>
+      <plot style="Lines" flip_x="false" mode="TimeSeries" flip_y="false">
+       <range right="45.952000" top="0.771215" bottom="-0.190035" left="5.952000"/>
        <limitY/>
        <curve color="#1f77b4" name="/uav1/control_manager/control_error/position_errors/x"/>
       </plot>
@@ -30,14 +30,76 @@
     </DockSplitter>
    </Container>
   </Tab>
-  <currentTabIndex index="0"/>
+  <Tab containers="1" tab_name="Control Link">
+   <Container>
+    <DockSplitter count="3" sizes="0.333596;0.332808;0.333596" orientation="-">
+     <DockArea name="...">
+      <plot style="Lines" flip_x="false" mode="TimeSeries" flip_y="false">
+       <range right="45.952000" top="150.000000" bottom="-150.000000" left="5.952000"/>
+       <limitY max="150" min="-150"/>
+       <curve color="#1f77b4" name="/sim_one_link_constraint/uav1/link_state/pose/pose/position/x">
+        <transform alias="/sim_one_link_constraint/uav1/link_state/pose/pose/position/x[Scale/Offset]" name="Scale/Offset">
+         <options value_offset="0.0" value_scale="57.296" time_offset="0.0"/>
+        </transform>
+       </curve>
+       <curve color="#d62728" name="/sim_one_link_constraint/uav1/link_state/twist/twist/linear/x">
+        <transform alias="/sim_one_link_constraint/uav1/link_state/twist/twist/linear/x[Scale/Offset]" name="Scale/Offset">
+         <options value_offset="0.0" value_scale="57.296" time_offset="0.0"/>
+        </transform>
+       </curve>
+      </plot>
+     </DockArea>
+     <DockArea name="...">
+      <plot style="Lines" flip_x="false" mode="TimeSeries" flip_y="false">
+       <range right="45.948000" top="12.000000" bottom="-2.000000" left="5.948000"/>
+       <limitY max="12" min="-2"/>
+       <curve color="#0027ff" name="/uav1/estimation_manager/odom_main/pose/pose/position/x"/>
+       <curve color="#ff4e00" name="/sim_one_link_constraint/uav1/tracker_cmd/position/x"/>
+      </plot>
+     </DockArea>
+     <DockArea name="...">
+      <plot style="Lines" flip_x="false" mode="TimeSeries" flip_y="false">
+       <range right="45.948000" top="2.278058" bottom="-0.107023" left="5.948000"/>
+       <limitY/>
+       <curve color="#0036ff" name="/uav1/estimation_manager/odom_main/twist/twist/linear/x"/>
+       <curve color="#d62728" name="/sim_one_link_constraint/uav1/tracker_cmd/velocity/x"/>
+      </plot>
+     </DockArea>
+    </DockSplitter>
+   </Container>
+  </Tab>
+  <Tab containers="1" tab_name="CAC Gains">
+   <Container>
+    <DockSplitter count="2" sizes="0.5;0.5" orientation="-">
+     <DockArea name="...">
+      <plot style="Lines" flip_x="false" mode="TimeSeries" flip_y="false">
+       <range right="0.000000" top="0.100000" bottom="-0.100000" left="0.000000"/>
+       <limitY/>
+       <curve color="#ff3800" name="/link_attitude_gains/pose/pose/position/x"/>
+       <curve color="#1ac938" name="/link_attitude_gains/pose/pose/position/y"/>
+       <curve color="#0001ff" name="/link_attitude_gains/pose/pose/position/z"/>
+      </plot>
+     </DockArea>
+     <DockArea name="...">
+      <plot style="Lines" flip_x="false" mode="TimeSeries" flip_y="false">
+       <range right="0.000000" top="0.100000" bottom="-0.100000" left="0.000000"/>
+       <limitY/>
+       <curve color="#ff0b00" name="/link_attitude_gains/twist/twist/linear/x"/>
+       <curve color="#10ff00" name="/link_attitude_gains/twist/twist/linear/y"/>
+       <curve color="#0007ff" name="/link_attitude_gains/twist/twist/linear/z"/>
+      </plot>
+     </DockArea>
+    </DockSplitter>
+   </Container>
+  </Tab>
+  <currentTabIndex index="1"/>
  </tabbed_widget>
  <use_relative_time_offset enabled="1"/>
  <!-- - - - - - - - - - - - - - - -->
  <!-- - - - - - - - - - - - - - - -->
  <Plugins>
   <plugin ID="DataLoad CSV">
-   <parameters delimiter="0" time_axis=""/>
+   <parameters time_axis="" delimiter="0"/>
   </plugin>
   <plugin ID="DataLoad MCAP"/>
   <plugin ID="DataLoad ROS bags">
@@ -55,7 +117,7 @@
    <max_array_size value="100"/>
    <boolean_strings_to_number value="true"/>
    <remove_suffix_from_strings value="true"/>
-   <selected_topics value="/clicked_point;/clock;/control/feedback;/control/update;/control/update_full;/goal;/initialpose;/marker_array;/move_base_simple/goal;/pose_array;/rosout;/rosout_agg;/tf;/tf_static;/uav1/constraint_manager/diagnostics;/uav1/control_manager/control_error;/uav1/control_manager/control_reference;/uav1/control_manager/controller_diagnostics;/uav1/control_manager/current_constraints;/uav1/control_manager/diagnostics;/uav1/control_manager/disturbances_markers;/uav1/control_manager/emergency_controller/parameter_descriptions;/uav1/control_manager/emergency_controller/parameter_updates;/uav1/control_manager/estimator_input;/uav1/control_manager/heading;/uav1/control_manager/mass_estimate;/uav1/control_manager/mass_nominal;/uav1/control_manager/mpc_controller/parameter_descriptions;/uav1/control_manager/mpc_controller/parameter_updates;/uav1/control_manager/mpc_tracker/current_trajectory_point;/uav1/control_manager/mpc_tracker/diagnostics;/uav1/control_manager/mpc_tracker/first_reference_point;/uav1/control_manager/mpc_tracker/mpc_reference_debugging;/uav1/control_manager/mpc_tracker/parameter_descriptions;/uav1/control_manager/mpc_tracker/parameter_updates;/uav1/control_manager/mpc_tracker/predicted_trajectory;/uav1/control_manager/mpc_tracker/predicted_trajectory_debugging;/uav1/control_manager/mpc_tracker/string;/uav1/control_manager/mpc_tracker/trajectory_processed/markers;/uav1/control_manager/mpc_tracker/trajectory_processed/poses;/uav1/control_manager/offboard_on;/uav1/control_manager/safety_area_coordinates_markers;/uav1/control_manager/safety_area_markers;/uav1/control_manager/se3_controller/parameter_descriptions;/uav1/control_manager/se3_controller/parameter_updates;/uav1/control_manager/speed;/uav1/control_manager/speed_tracker/rviz_marker;/uav1/control_manager/throttle;/uav1/control_manager/thrust;/uav1/control_manager/tilt_error;/uav1/control_manager/tracker_cmd;/uav1/control_manager/trajectory_original/markers;/uav1/control_manager/trajectory_original/poses;/uav1/estimation_manager/diagnostics;/uav1/estimation_manager/garmin_agl/agl_height;/uav1/estimation_manager/garmin_agl/garmin_agl/correction/pos_garmin/proc;/uav1/estimation_manager/garmin_agl/garmin_agl/correction/pos_garmin/raw;/uav1/estimation_manager/garmin_agl/garmin_agl/input;/uav1/estimation_manager/garmin_agl/garmin_agl/output;/uav1/estimation_manager/gps_baro/alt_baro/correction/vel_hw_api/proc;/uav1/estimation_manager/gps_baro/alt_baro/correction/vel_hw_api/raw;/uav1/estimation_manager/gps_baro/alt_baro/input;/uav1/estimation_manager/gps_baro/alt_baro/output;/uav1/estimation_manager/gps_baro/attitude;/uav1/estimation_manager/gps_baro/hdg_hw_api/output;/uav1/estimation_manager/gps_baro/lat_gps/correction/pos_hw_api/proc;/uav1/estimation_manager/gps_baro/lat_gps/correction/pos_hw_api/raw;/uav1/estimation_manager/gps_baro/lat_gps/input;/uav1/estimation_manager/gps_baro/lat_gps/output;/uav1/estimation_manager/gps_baro/odom;/uav1/estimation_manager/gps_baro/uav_state;/uav1/estimation_manager/gps_garmin/alt_garmin/correction/pos_garmin/proc;/uav1/estimation_manager/gps_garmin/alt_garmin/correction/pos_garmin/raw;/uav1/estimation_manager/gps_garmin/alt_garmin/correction/vel_hw_api/proc;/uav1/estimation_manager/gps_garmin/alt_garmin/correction/vel_hw_api/raw;/uav1/estimation_manager/gps_garmin/alt_garmin/input;/uav1/estimation_manager/gps_garmin/alt_garmin/output;/uav1/estimation_manager/gps_garmin/attitude;/uav1/estimation_manager/gps_garmin/hdg_hw_api/output;/uav1/estimation_manager/gps_garmin/lat_gps/correction/pos_hw_api/proc;/uav1/estimation_manager/gps_garmin/lat_gps/correction/pos_hw_api/raw;/uav1/estimation_manager/gps_garmin/lat_gps/input;/uav1/estimation_manager/gps_garmin/lat_gps/output;/uav1/estimation_manager/gps_garmin/odom;/uav1/estimation_manager/gps_garmin/odom/local;/uav1/estimation_manager/gps_garmin/uav_state;/uav1/estimation_manager/height_agl;/uav1/estimation_manager/innovation;/uav1/estimation_manager/max_flight_z_agl;/uav1/estimation_manager/odom_main;/uav1/estimation_manager/uav_state;/uav1/gain_manager/diagnostics;/uav1/hw_api/acceleration_hdg_cmd;/uav1/hw_api/acceleration_hdg_rate_cmd;/uav1/hw_api/actuator_cmd;/uav1/hw_api/altitude;/uav1/hw_api/angular_velocity;/uav1/hw_api/attitude_cmd;/uav1/hw_api/attitude_rate_cmd;/uav1/hw_api/battery_state;/uav1/hw_api/capabilities;/uav1/hw_api/connected;/uav1/hw_api/control_group_cmd;/uav1/hw_api/distance_sensor;/uav1/hw_api/gnss;/uav1/hw_api/gnss_status;/uav1/hw_api/ground_truth;/uav1/hw_api/imu;/uav1/hw_api/mag_heading;/uav1/hw_api/magnetic_field;/uav1/hw_api/odometry;/uav1/hw_api/orientation;/uav1/hw_api/position;/uav1/hw_api/position_cmd;/uav1/hw_api/rc_channels;/uav1/hw_api/rtk;/uav1/hw_api/status;/uav1/hw_api/velocity;/uav1/hw_api/velocity_hdg_cmd;/uav1/hw_api/velocity_hdg_rate_cmd;/uav1/mrs_uav_status/uav_status;/uav1/mrs_uav_status/uav_status_short;/uav1/tarot_gimbal/gimbal_command;/uav1/trajectory_generation/markers/final;/uav1/trajectory_generation/markers/original;/uav1/trajectory_generation/original_path;/uav1/trajectory_generation/parameter_descriptions;/uav1/trajectory_generation/parameter_updates;/uav1/uav1_nodelet_manager/bond;/uav1/uav1_nodelet_manager/garmin_agl/garmin_agl/parameter_descriptions;/uav1/uav1_nodelet_manager/garmin_agl/garmin_agl/parameter_updates;/uav1/uav1_nodelet_manager/garmin_agl/garmin_agl/pos_garmin/parameter_descriptions;/uav1/uav1_nodelet_manager/garmin_agl/garmin_agl/pos_garmin/parameter_updates;/uav1/uav1_nodelet_manager/gps_baro/alt_baro/parameter_descriptions;/uav1/uav1_nodelet_manager/gps_baro/alt_baro/parameter_updates;/uav1/uav1_nodelet_manager/gps_baro/alt_baro/vel_hw_api/parameter_descriptions;/uav1/uav1_nodelet_manager/gps_baro/alt_baro/vel_hw_api/parameter_updates;/uav1/uav1_nodelet_manager/gps_baro/lat_gps/parameter_descriptions;/uav1/uav1_nodelet_manager/gps_baro/lat_gps/parameter_updates;/uav1/uav1_nodelet_manager/gps_baro/lat_gps/pos_hw_api/parameter_descriptions;/uav1/uav1_nodelet_manager/gps_baro/lat_gps/pos_hw_api/parameter_updates;/uav1/uav1_nodelet_manager/gps_garmin/alt_garmin/parameter_descriptions;/uav1/uav1_nodelet_manager/gps_garmin/alt_garmin/parameter_updates;/uav1/uav1_nodelet_manager/gps_garmin/alt_garmin/pos_garmin/parameter_descriptions;/uav1/uav1_nodelet_manager/gps_garmin/alt_garmin/pos_garmin/parameter_updates;/uav1/uav1_nodelet_manager/gps_garmin/alt_garmin/vel_hw_api/parameter_descriptions;/uav1/uav1_nodelet_manager/gps_garmin/alt_garmin/vel_hw_api/parameter_updates;/uav1/uav1_nodelet_manager/gps_garmin/lat_gps/parameter_descriptions;/uav1/uav1_nodelet_manager/gps_garmin/lat_gps/parameter_updates;/uav1/uav1_nodelet_manager/gps_garmin/lat_gps/pos_hw_api/parameter_descriptions;/uav1/uav1_nodelet_manager/gps_garmin/lat_gps/pos_hw_api/parameter_updates;/uav1/uav_manager/diagnostics;/uav1/vio/camera/image_raw/mouse_click"/>
+   <selected_topics value="/clicked_point;/clock;/control/feedback;/control/update;/control/update_full;/goal;/initialpose;/link_attitude_gains;/marker_array;/move_base_simple/goal;/pose_array;/rosout;/rosout_agg;/sim_one_link_constraint/parameter_descriptions;/sim_one_link_constraint/parameter_updates;/sim_one_link_constraint/uav1/attitude_cmd;/sim_one_link_constraint/uav1/attitude_rate_cmd;/sim_one_link_constraint/uav1/imu;/sim_one_link_constraint/uav1/link_state;/sim_one_link_constraint/uav1/odom;/sim_one_link_constraint/uav1/pos_of_control_link;/sim_one_link_constraint/uav1/pos_of_link_loads_in_rviz;/sim_one_link_constraint/uav1/quadcopter_state;/sim_one_link_constraint/uav1/rangefinder;/sim_one_link_constraint/uav1/tracker_cmd;/sim_one_link_constraint/uav_poses;/tf;/tf_static;/uav1/constraint_manager/diagnostics;/uav1/control_manager/control_error;/uav1/control_manager/control_reference;/uav1/control_manager/controller_diagnostics;/uav1/control_manager/controller_one_link_constraint/parameter_descriptions;/uav1/control_manager/controller_one_link_constraint/parameter_updates;/uav1/control_manager/current_constraints;/uav1/control_manager/diagnostics;/uav1/control_manager/disturbances_markers;/uav1/control_manager/emergency_controller/parameter_descriptions;/uav1/control_manager/emergency_controller/parameter_updates;/uav1/control_manager/estimator_input;/uav1/control_manager/heading;/uav1/control_manager/mass_estimate;/uav1/control_manager/mass_nominal;/uav1/control_manager/mpc_controller/parameter_descriptions;/uav1/control_manager/mpc_controller/parameter_updates;/uav1/control_manager/mpc_tracker/current_trajectory_point;/uav1/control_manager/mpc_tracker/diagnostics;/uav1/control_manager/mpc_tracker/first_reference_point;/uav1/control_manager/mpc_tracker/mpc_reference_debugging;/uav1/control_manager/mpc_tracker/parameter_descriptions;/uav1/control_manager/mpc_tracker/parameter_updates;/uav1/control_manager/mpc_tracker/predicted_trajectory;/uav1/control_manager/mpc_tracker/predicted_trajectory_debugging;/uav1/control_manager/mpc_tracker/string;/uav1/control_manager/mpc_tracker/trajectory_processed/markers;/uav1/control_manager/mpc_tracker/trajectory_processed/poses;/uav1/control_manager/offboard_on;/uav1/control_manager/safety_area_coordinates_markers;/uav1/control_manager/safety_area_markers;/uav1/control_manager/se3_controller/parameter_descriptions;/uav1/control_manager/se3_controller/parameter_updates;/uav1/control_manager/speed;/uav1/control_manager/speed_tracker/rviz_marker;/uav1/control_manager/throttle;/uav1/control_manager/thrust;/uav1/control_manager/tilt_error;/uav1/control_manager/tracker_cmd;/uav1/control_manager/trajectory_original/markers;/uav1/control_manager/trajectory_original/poses;/uav1/estimation_manager/diagnostics;/uav1/estimation_manager/garmin_agl/agl_height;/uav1/estimation_manager/garmin_agl/garmin_agl/correction/pos_garmin/proc;/uav1/estimation_manager/garmin_agl/garmin_agl/correction/pos_garmin/raw;/uav1/estimation_manager/garmin_agl/garmin_agl/input;/uav1/estimation_manager/garmin_agl/garmin_agl/output;/uav1/estimation_manager/gps_baro/alt_baro/correction/vel_hw_api/proc;/uav1/estimation_manager/gps_baro/alt_baro/correction/vel_hw_api/raw;/uav1/estimation_manager/gps_baro/alt_baro/input;/uav1/estimation_manager/gps_baro/alt_baro/output;/uav1/estimation_manager/gps_baro/attitude;/uav1/estimation_manager/gps_baro/hdg_hw_api/output;/uav1/estimation_manager/gps_baro/lat_gps/correction/pos_hw_api/proc;/uav1/estimation_manager/gps_baro/lat_gps/correction/pos_hw_api/raw;/uav1/estimation_manager/gps_baro/lat_gps/input;/uav1/estimation_manager/gps_baro/lat_gps/output;/uav1/estimation_manager/gps_baro/odom;/uav1/estimation_manager/gps_baro/uav_state;/uav1/estimation_manager/gps_garmin/alt_garmin/correction/pos_garmin/proc;/uav1/estimation_manager/gps_garmin/alt_garmin/correction/pos_garmin/raw;/uav1/estimation_manager/gps_garmin/alt_garmin/correction/vel_hw_api/proc;/uav1/estimation_manager/gps_garmin/alt_garmin/correction/vel_hw_api/raw;/uav1/estimation_manager/gps_garmin/alt_garmin/input;/uav1/estimation_manager/gps_garmin/alt_garmin/output;/uav1/estimation_manager/gps_garmin/attitude;/uav1/estimation_manager/gps_garmin/hdg_hw_api/output;/uav1/estimation_manager/gps_garmin/lat_gps/correction/pos_hw_api/proc;/uav1/estimation_manager/gps_garmin/lat_gps/correction/pos_hw_api/raw;/uav1/estimation_manager/gps_garmin/lat_gps/input;/uav1/estimation_manager/gps_garmin/lat_gps/output;/uav1/estimation_manager/gps_garmin/odom;/uav1/estimation_manager/gps_garmin/odom/local;/uav1/estimation_manager/gps_garmin/uav_state;/uav1/estimation_manager/height_agl;/uav1/estimation_manager/innovation;/uav1/estimation_manager/max_flight_z_agl;/uav1/estimation_manager/odom_main;/uav1/estimation_manager/uav_state;/uav1/gain_manager/diagnostics;/uav1/hw_api/acceleration_hdg_cmd;/uav1/hw_api/acceleration_hdg_rate_cmd;/uav1/hw_api/actuator_cmd;/uav1/hw_api/altitude;/uav1/hw_api/angular_velocity;/uav1/hw_api/attitude_cmd;/uav1/hw_api/attitude_rate_cmd;/uav1/hw_api/battery_state;/uav1/hw_api/capabilities;/uav1/hw_api/connected;/uav1/hw_api/control_group_cmd;/uav1/hw_api/distance_sensor;/uav1/hw_api/gnss;/uav1/hw_api/gnss_status;/uav1/hw_api/ground_truth;/uav1/hw_api/imu;/uav1/hw_api/mag_heading;/uav1/hw_api/magnetic_field;/uav1/hw_api/odometry;/uav1/hw_api/orientation;/uav1/hw_api/position;/uav1/hw_api/position_cmd;/uav1/hw_api/rc_channels;/uav1/hw_api/rtk;/uav1/hw_api/status;/uav1/hw_api/velocity;/uav1/hw_api/velocity_hdg_cmd;/uav1/hw_api/velocity_hdg_rate_cmd;/uav1/mrs_uav_status/uav_status;/uav1/mrs_uav_status/uav_status_short;/uav1/tarot_gimbal/gimbal_command;/uav1/trajectory_generation/markers/final;/uav1/trajectory_generation/markers/original;/uav1/trajectory_generation/original_path;/uav1/trajectory_generation/parameter_descriptions;/uav1/trajectory_generation/parameter_updates;/uav1/uav1_nodelet_manager/bond;/uav1/uav1_nodelet_manager/garmin_agl/garmin_agl/parameter_descriptions;/uav1/uav1_nodelet_manager/garmin_agl/garmin_agl/parameter_updates;/uav1/uav1_nodelet_manager/garmin_agl/garmin_agl/pos_garmin/parameter_descriptions;/uav1/uav1_nodelet_manager/garmin_agl/garmin_agl/pos_garmin/parameter_updates;/uav1/uav1_nodelet_manager/gps_baro/alt_baro/parameter_descriptions;/uav1/uav1_nodelet_manager/gps_baro/alt_baro/parameter_updates;/uav1/uav1_nodelet_manager/gps_baro/alt_baro/vel_hw_api/parameter_descriptions;/uav1/uav1_nodelet_manager/gps_baro/alt_baro/vel_hw_api/parameter_updates;/uav1/uav1_nodelet_manager/gps_baro/lat_gps/parameter_descriptions;/uav1/uav1_nodelet_manager/gps_baro/lat_gps/parameter_updates;/uav1/uav1_nodelet_manager/gps_baro/lat_gps/pos_hw_api/parameter_descriptions;/uav1/uav1_nodelet_manager/gps_baro/lat_gps/pos_hw_api/parameter_updates;/uav1/uav1_nodelet_manager/gps_garmin/alt_garmin/parameter_descriptions;/uav1/uav1_nodelet_manager/gps_garmin/alt_garmin/parameter_updates;/uav1/uav1_nodelet_manager/gps_garmin/alt_garmin/pos_garmin/parameter_descriptions;/uav1/uav1_nodelet_manager/gps_garmin/alt_garmin/pos_garmin/parameter_updates;/uav1/uav1_nodelet_manager/gps_garmin/alt_garmin/vel_hw_api/parameter_descriptions;/uav1/uav1_nodelet_manager/gps_garmin/alt_garmin/vel_hw_api/parameter_updates;/uav1/uav1_nodelet_manager/gps_garmin/lat_gps/parameter_descriptions;/uav1/uav1_nodelet_manager/gps_garmin/lat_gps/parameter_updates;/uav1/uav1_nodelet_manager/gps_garmin/lat_gps/pos_hw_api/parameter_descriptions;/uav1/uav1_nodelet_manager/gps_garmin/lat_gps/pos_hw_api/parameter_updates;/uav1/uav_manager/diagnostics;/uav1/vio/camera/image_raw/mouse_click"/>
   </plugin>
   <plugin ID="UDP Server"/>
   <plugin ID="WebSocket Server"/>
@@ -72,6 +134,7 @@
  </Plugins>
  <!-- - - - - - - - - - - - - - - -->
  <previouslyLoaded_Datafiles/>
+ <previouslyLoaded_Streamer name="ROS Topic Subscriber"/>
  <!-- - - - - - - - - - - - - - - -->
  <customMathEquations/>
  <snippets/>
